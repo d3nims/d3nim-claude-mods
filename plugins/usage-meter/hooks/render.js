@@ -334,8 +334,9 @@ export function dogCells(columns, pct, ms, mode) {
 // happy (the answer just landed), sleep (nothing for a while)
 const MOOD_FRAMES = { sit: 'sit', wag: 'wag', bark: 'bark', run: 'run', happy: 'pant', sleep: 'sleep' }
 const SKY_COLS = 12 // room to the right of Terry for the sun, the moon and the stars
+const TRAIL_COLS = 5 // room to the left of Terry for speed lines and dust while he runs
 const SOIL_ROWS = 3 // sub-pixel rows of earth under the grass
-export const TERRY_COLS = DOG_COLS + SKY_COLS
+export const TERRY_COLS = DOG_COLS + SKY_COLS + TRAIL_COLS
 export const TERRY_ROWS = Math.ceil((ground + 1 + SOIL_ROWS) / 4)
 
 // Fixed colours (no gradients), so Raster's ~1000 exact colour pairs are never used up
@@ -394,7 +395,7 @@ export function terryCells(mood, ms, mode, hour = 12) {
   const t = ms / 1000
   const set = SETS[MOOD_FRAMES[mood]] || SETS.sit
   const frame = closeEyes(set.frames[pick(set, ms)], mood === 'sleep' || isBlinking(ms))
-  const dogX = 2
+  const dogX = TRAIL_COLS * 2
 
   // the sky, right of his nose
   const skyX0 = dogX + SW + 1
@@ -436,6 +437,26 @@ export function terryCells(mood, ms, mode, hour = 12) {
     put(x, ground, GRASS[(wx >> 1) & 1])
     if (hash(wx, 7) < 0.4) put(x, ground - 1, GRASS[wx & 1])
     if (hash(wx, 8) < 0.12) put(x, ground - 2, GRASS[1])
+  }
+
+  // running: speed lines streaking back past him and puffs of dust kicked up behind
+  if (mood === 'run') {
+    // three streaks at back, belly and leg height, sweeping back through the space behind him
+    const lines = [[ground - 17, 0], [ground - 12, 0.4], [ground - 7, 0.75]]
+    for (const [y, phase] of lines) {
+      const len = 7
+      const span = dogX + 4
+      const head = dogX + 3 - Math.floor(((t * 4.5 + phase) % 1) * span)
+      for (let k = 0; k < len; k++) put(head - k, y, k < 3 ? [232, 236, 246] : [150, 154, 170])
+    }
+    for (let i = 0; i < 3; i++) {
+      const age = (t * 3 + i / 3) % 1 // each puff drifts back and fades over a third of a second
+      const x = Math.round(dogX + 2 - age * 10 - i)
+      const y = ground - 1 - Math.round(age * 2)
+      const c = age < 0.5 ? [176, 150, 118] : [120, 104, 86]
+      put(x, y, c)
+      if (age < 0.6) put(x - 1, y, c)
+    }
   }
 
   // Terry on top

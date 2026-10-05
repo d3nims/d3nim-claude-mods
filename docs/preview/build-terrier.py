@@ -196,7 +196,7 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
         limb(img, [(13.0, 12.6), (13.2, 15.8), (13.4, G)], 0.68, 'O')                     # near front leg
     else:
         by = (12.4 if not lying else 16.2) - bob        # rib-cage centre height, lifted by `bob` while trotting
-        dy = (0.0 if not lying else 6.2) - bob * 0.6    # how far the head is lowered
+        dy = (0.0 if not lying else 6.2) - bob * 0.6 + (1.3 if dash else 0.0)  # head lowered; running, he charges head-down
         # tail: thin, hangs low from the rump and curls out, light tuft at the tip
         if dash:
             # running flat out: the tail streams out behind
