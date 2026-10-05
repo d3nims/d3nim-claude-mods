@@ -19,6 +19,8 @@ const localHour = () => {
 let usage = null // $.session.usage() 의 마지막 결과
 let modelId = null // 지금 모델 (/model 이 보여주는 것)
 let lastStepEffort = '(아직 요청 없음)'
+let stepCalls = 0
+let stepChunks = 0
 let effortFrom = '없음' // 추론 강도를 어디서 읽었는지 (/terry debug)
 let effort = null // 추론 강도: 요청마다 turn.step 에서 읽는다. 첫 요청 전이거나 강도가 없는 모델이면 null
 let style = 'flame1' // 'flame1' (불꽃 밴드) | 'terry' (강아지)
@@ -152,7 +154,7 @@ function modelTexts(Text, prefix, lead) {
   if (!name) return []
   const parts = [Text({ key: prefix + 'm', color: MODEL_COLOR, bold: true, children: [lead + name] })]
   if (effort) {
-    parts.push(Text({ key: prefix + 'sep', dimColor: true, children: [' · 추론 '] }))
+    parts.push(Text({ key: prefix + 'sep', dimColor: true, children: [' · '] }))
     parts.push(Text({ key: prefix + 'e', color: effortColor(effort), children: [effort] }))
   }
   return parts
@@ -174,7 +176,7 @@ function modelCard(Box, Text, key) {
         key: key + '-e',
         flexDirection: 'row',
         children: [
-          Text({ key: key + '-ek', dimColor: true, children: ['추론 '] }),
+          Text({ key: key + '-ek', dimColor: true, children: [effort ? '' : '추론 '] }),
           Text({ key: key + '-ev', color: effort ? effortColor(effort) : undefined, dimColor: !effort, children: [effort ?? '--'] }),
         ],
       }),
@@ -184,12 +186,12 @@ function modelCard(Box, Text, key) {
 // 카드가 차지하는 폭 (테두리 2 + 안쪽 여백 2 + 글자)
 const cardWidth = () => {
   const name = prettyModel(modelId)
-  return name ? Math.max(visible(name), visible('추론 ' + (effort ?? '--'))) + 4 : 0
+  return name ? Math.max(visible(name), visible(effort ?? '추론 --')) + 4 : 0
 }
 const modelLine = () => {
   const name = prettyModel(modelId)
   if (!name) return null
-  return effort ? name + ' · 추론 ' + effort : name
+  return effort ? name + ' · ' + effort : name
 }
 
 // 한글은 두 칸을 차지한다
@@ -207,6 +209,16 @@ async function refresh($) {
     try {
       effort = (await $.env.get('CLAUDE_EFFORT')) || null
       if (effort) effortFrom = 'CLAUDE_EFFORT 환경 변수'
+    } catch (err) {}
+  }
+  if (!effort) {
+    try {
+      const dir = (await $.env.get('CLAUDE_CONFIG_DIR')) || (await $.env.get('HOME')) + '/.claude'
+      const level = JSON.parse(await $.fs.read(dir + '/settings.json')).effortLevel
+      if (typeof level === 'string' && level) {
+        effort = level
+        effortFrom = '설정 파일 effortLevel'
+      }
     } catch (err) {}
   }
   if (!effort) {
@@ -307,6 +319,7 @@ export function register(on) {
   // turn.step 은 응답이 조각조각 흘러오는 이벤트라서 async function* 로 쓰고, 그대로 통과시킨다.
   on('turn.step', async function* ($, e, next) {
     const nextEffort = e.effort == null ? null : String(e.effort)
+    stepCalls += 1
     lastStepEffort = e.effort == null ? '(없음)' : String(e.effort)
     if (e.model !== modelId || (nextEffort && nextEffort !== effort)) {
       modelId = e.model
@@ -318,6 +331,7 @@ export function register(on) {
     }
     // 세기만 한다. 턴이 끝난 뒤의 모델 호출(다음 입력 제안 등)에서 달리기를 다시 켜면 안 된다.
     for await (const chunk of next(e)) {
+      stepChunks += 1
       if (!working) {
         yield chunk
         continue
@@ -394,7 +408,7 @@ export function register(on) {
           text: [
             'usage-meter 진단',
             '모델: ' + (modelId ?? '(없음)') + ' / 추론: ' + (effort ?? '(없음)') + ' (출처: ' + effortFrom + ')',
-            '마지막 요청의 effort 값: ' + lastStepEffort,
+            '마지막 요청의 effort 값: ' + lastStepEffort + ' / 요청 신호 ' + stepCalls + '번, 응답 조각 ' + stepChunks + '개',
             'CLAUDE_EFFORT: ' + env,
             '설정 항목: ' + rows,
             '응답 중: ' + working + ' / 이번 요청 토큰: 입력 ' + turn.input + ' 출력 ' + turn.output + ' 추정 글자 ' + turn.liveChars,
@@ -457,7 +471,7 @@ export function register(on) {
             children: name
               ? [
                   Text({ key: 'tc-m', color: MODEL_COLOR, bold: true, children: [name] }),
-                  Text({ key: 'tc-ek', dimColor: true, children: [' · 추론 '] }),
+                  Text({ key: 'tc-ek', dimColor: true, children: [' · '] }),
                   Text({ key: 'tc-e', color: effort ? effortColor(effort) : undefined, dimColor: !effort, children: [effort ?? '--'] }),
                 ]
               : [Text({ key: 'tc-none', dimColor: true, children: ['모델 정보 기다리는 중'] })],
