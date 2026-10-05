@@ -4,10 +4,11 @@
 // 뒤에 quad 또는 braille 을 붙이면 그림 방식을 바꿉니다 (예: /terry braille)
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
-import { BAND_GAP, BAND_NAMES, DOG_COLS, DOG_ROWS, bonesLeft, makeBand, stateColor, walkCells } from './render.js'
+import { BAND_GAP, BAND_NAMES, DOG_COLS, DOG_ROWS, dogCells, makeBand, stateColor } from './render.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 66 // 약 15프레임
+const MINI_BAR = 14 // /terry 화면 아래의 작은 게이지 칸 수
 
 const startedAt = Date.now()
 const nowMs = () => Date.now() - startedAt
@@ -259,7 +260,7 @@ export function register(on) {
       })
     }
 
-    // /terry 화면: 테리의 산책. 5시간 = 달린 거리, 주간 = 하늘의 해, 대화 = 흙에 묻힌 뼈다귀
+    // /terry 화면: 강아지가 사용량(5시간) 위치까지 달린다
     if (style === 'terry') {
       // 모델과 추론 강도는 강아지 오른쪽 빈 곳에 세로로 둔다. 자리가 모자라면 아래 줄에 붙인다.
       const name = prettyModel(modelId)
@@ -267,8 +268,8 @@ export function register(on) {
       const side = name != null && cols - 2 - SIDE >= DOG_COLS + 8
       const columns = Math.max(DOG_COLS + 8, Math.min(64, cols - 2 - (side ? SIDE : 0)))
       const pct = vals[0] ?? 0
-      runAnim($, e.requestId, 'dog', columns, DOG_ROWS, () => walkCells(columns, values(), nowMs(), mode))
-      const dog = Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: walkCells(columns, vals, nowMs(), mode) })
+      runAnim($, e.requestId, 'dog', columns, DOG_ROWS, () => dogCells(columns, values()[0] ?? 0, nowMs(), mode))
+      const dog = Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: dogCells(columns, pct, nowMs(), mode) })
       return Box({
         flexDirection: 'column',
         children: [
@@ -288,19 +289,28 @@ export function register(on) {
                 ],
               })
             : dog,
-          // 장면 읽는 법: 숫자와 그림을 짝지어 한 줄로
+          // 강아지가 달리는 위치는 5시간. 주간과 대화는 아래에 작은 게이지로 따로 보여준다
           Box({
-            key: 'dog-legend',
+            key: 'dog-main',
             flexDirection: 'row',
             children: [
-              Text({ key: 'dl0', color: stateColor(pct), bold: true, children: ['5시간 ' + show(vals[0])] }),
-              Text({ key: 'dl0h', dimColor: true, children: [' 테리가 달린 만큼    '] }),
-              Text({ key: 'dl1', color: stateColor(vals[1] ?? 0), bold: true, children: ['주간 ' + show(vals[1])] }),
-              Text({ key: 'dl1h', dimColor: true, children: [(vals[1] ?? 0) >= 100 ? ' 해가 지고 달이 떴어요    ' : (vals[1] ?? 0) >= 80 ? ' 노을이 졌어요    ' : ' 해가 지나간 만큼    '] }),
-              Text({ key: 'dl2', color: stateColor(vals[2] ?? 0), bold: true, children: ['대화 ' + show(vals[2])] }),
-              Text({ key: 'dl2h', dimColor: true, children: [' 뼈다귀 ' + bonesLeft(vals[2]) + '개 남음'] }),
+              Text({ key: 'dm-label', color: stateColor(pct), bold: true, children: ['5시간 ' + show(vals[0])] }),
               ...(side ? [] : modelTexts(Text, 'dm-', '   ')),
+              Text({ key: 'dm-hint', dimColor: true, children: ['   (강아지가 달리는 위치 · /flame1 로 불꽃 밴드)'] }),
             ],
+          }),
+          Box({
+            key: 'dog-sub',
+            flexDirection: 'row',
+            children: [1, 2].flatMap(i => {
+              const v = vals[i]
+              const filled = Math.round(((v ?? 0) / 100) * MINI_BAR)
+              return [
+                Text({ key: 'ds-l' + i, color: stateColor(v ?? 0), children: [BAND_NAMES[i] + ' ' + show(v) + ' '] }),
+                Text({ key: 'ds-f' + i, color: stateColor(v ?? 0), children: ['█'.repeat(filled)] }),
+                Text({ key: 'ds-e' + i, dimColor: true, children: ['░'.repeat(MINI_BAR - filled) + (i === 1 ? '    ' : '')] }),
+              ]
+            }),
           }),
         ],
       })

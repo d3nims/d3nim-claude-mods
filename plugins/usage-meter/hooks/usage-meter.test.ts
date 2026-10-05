@@ -45,7 +45,6 @@ test('/terry shows the terrier and /flame1 brings the flames back', async ($, on
   expect(await ui.find({ type: 'Text', text: /^Opus 5\.5$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /주간 71%/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /대화 12%/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /뼈다귀 5개 남음/ })).toBeDefined()
   await $.command.run({ command: 'flame1', args: '' } as never)
   await ui.redraw()
   expect(await ui.find({ type: 'Raster', key: 'band' })).toBeDefined()

@@ -271,10 +271,7 @@ for (const name of Object.keys(SPRITE.sets)) SETS[name] = { ...SPRITE.sets[name]
 const SW = SETS.run.frames[0][0].length // sub-pixel width of the sprite
 let ground = 0
 for (const set of Object.values(SETS)) for (const f of set.frames) f.forEach((row, y) => { if (row.some(c => c)) ground = Math.max(ground, y) })
-// The walk: a strip of sky above him (for the sun) and a dirt path under his paws (bones are buried in it)
-const SKY = 8 // sub-pixel rows of sky above the sprite (the sun is 7 tall)
-const PATH = 8 // sub-pixel rows of dirt below his paws (the bones are 6 tall)
-export const DOG_ROWS = Math.ceil((SKY + ground + 1 + PATH) / 4)
+export const DOG_ROWS = Math.ceil((ground + 1) / 4)
 export const DOG_COLS = Math.ceil(SW / 2)
 
 function pick(set, ms) {
@@ -287,119 +284,28 @@ function pick(set, ms) {
   return 0
 }
 
-// Fixed colours only (no gradients): Raster keeps about 1000 colour pairs exact, see palette() above
-const SOIL_TOP = [128, 94, 60]
-const SOIL = [104, 75, 47]
-const SOIL_DARK = [82, 58, 36]
-const PEBBLE = [152, 148, 138]
-const PEBBLE_DARK = [112, 108, 100]
-const GRASS = [[98, 164, 74], [74, 130, 58]]
-const STEM = [70, 128, 60]
-const PETALS = [[246, 128, 178], [250, 212, 84], [240, 240, 236], [182, 134, 236]]
-const FLOWER_EYE = [255, 210, 60]
-const SUN = { core: [255, 228, 94], rim: [255, 184, 62] }
-const SUNSET = { core: [255, 152, 82], rim: [232, 94, 62] }
-const MOON = { core: [236, 234, 214], rim: [188, 186, 170] }
-const STAR = [230, 232, 255]
-const BONE = [242, 230, 198]
-const BONE_EMPTY = [70, 50, 32] // a dug-out hole in the soil
-// Six rows, so that a quarter block (two rows each) still shows knob / shaft / knob
-const BONE_SHAPE = ['XX......XX', 'XXX....XXX', '.XXXXXXXX.', '.XXXXXXXX.', 'XXX....XXX', 'XX......XX']
-const FLOWER_EVERY = 26 // sub-pixels between flower slots along the path
-
-/** How many of the five bones are left at a context fill of `pct`. */
-export function bonesLeft(pct) {
-  return pct == null ? 5 : Math.max(0, Math.min(5, Math.ceil((5 * (100 - pct)) / 100)))
-}
-
-/**
- * Terry's walk, `columns` wide. vals: [five_hour, seven_day, context] percentages (or null); ms since start.
- *  - 5시간: how far along the path he has run (his position). Under 80% he runs, then pants, at 97% he sleeps.
- *  - 주간: the sun crossing the sky, left to right over the week; sunset colours from 80%, the moon at 100%.
- *  - 대화: five bones buried in the path at the left, one dug out for every fifth of the context window used.
- * The path scrolls under him (dirt, pebbles, grass, flowers drifting past) while he moves.
- */
-export function walkCells(columns, vals, ms, mode) {
-  const [five, week, ctx] = vals
+/** The terrier on a gauge `columns` wide at `pct`, ms since start. Under 80% he runs, then pants, then sleeps. */
+export function dogCells(columns, pct, ms, mode) {
   const TW = columns * 2
-  const H = DOG_ROWS * 4
-  const canvas = Array.from({ length: H }, () => Array(TW).fill(null))
-  const put = (x, y, c) => { if (x >= 0 && x < TW && y >= 0 && y < H) canvas[y][x] = c }
+  const canvas = Array.from({ length: DOG_ROWS * 4 }, () => Array(TW).fill(null))
   const t = ms / 1000
-  const pct = five ?? 0
   const set = pct >= 97 ? SETS.sleep : pct >= 80 ? SETS.pant : SETS.run
-  const speed = set === SETS.sleep ? 0 : set === SETS.pant ? 7 : 16 // sub-pixels a second the path slides by
-  const off = Math.floor(t * speed)
-  const surface = SKY + ground + 1 // first dirt row, right under his paws
-
-  // the sky strip: the sun (or the moon and stars) travels left to right over the week, a little higher mid-week
-  if (week != null) {
-    const p = Math.max(0, Math.min(1, week / 100))
-    const sx = Math.round(5 + p * (TW - 10))
-    const sy = 4
-    const look = week >= 100 ? MOON : week >= 80 ? SUNSET : SUN
-    if (week >= 100) {
-      for (let i = 0; i < 10; i++) {
-        const x = Math.floor(hash(i, 501) * TW)
-        const y = Math.floor(hash(i, 502) * (SKY - 1))
-        if (Math.abs(x - sx) > 4 && hash(i, Math.floor(t * 2)) > 0.25) put(x, y, STAR)
-      }
-    }
-    for (let dy = -3; dy <= 3; dy++) {
-      for (let dx = -3; dx <= 3; dx++) {
-        const d = Math.hypot(dx, dy)
-        if (d <= 3.1 && sy + dy < SKY) put(sx + dx, sy + dy, d <= 1.8 ? look.core : look.rim)
-      }
-    }
-    if (week < 80) {
-      // short rays to either side that twinkle
-      for (const [dx, k] of [[-5, 0], [5, 1], [-4, 2], [4, 3]]) {
-        if ((Math.floor(t * 3) + k) % 2) continue
-        put(sx + dx, sy + (k > 1 ? -2 : 0), look.rim)
-      }
-    }
-  }
-
-  // the path: soil with pebbles, a grassy edge, flowers drifting past
-  for (let x = 0; x < TW; x++) {
-    const wx = x + off
-    for (let y = surface; y < H; y++) {
-      let c = y === surface ? SOIL_TOP : hash(wx >> 1, y) < 0.28 ? SOIL_DARK : SOIL
-      if (y > surface && hash(wx >> 2, (y >> 1) + 50) < 0.07) c = hash(wx, y + 9) < 0.5 ? PEBBLE : PEBBLE_DARK
-      put(x, y, c)
-    }
-    if (hash(wx, 7) < 0.45) {
-      const tall = 1 + Math.floor(hash(wx, 8) * 3)
-      for (let k = 1; k <= tall; k++) put(x, surface - k, GRASS[(wx + k) & 1])
-    }
-  }
-  for (let cell = Math.floor(off / FLOWER_EVERY) - 1; cell <= Math.floor((off + TW) / FLOWER_EVERY) + 1; cell++) {
-    if (hash(cell, 99) > 0.55) continue
-    const fx = cell * FLOWER_EVERY + 4 + Math.floor(hash(cell, 98) * 18) - off
-    const stem = 4 + Math.floor(hash(cell, 97) * 3)
-    const petal = PETALS[Math.floor(hash(cell, 96) * PETALS.length)]
-    for (let k = 1; k <= stem; k++) put(fx, surface - k, STEM)
-    const hy = surface - stem - 1
-    for (const [dx, dy] of [[0, -1], [-1, 0], [1, 0], [0, 1]]) put(fx + dx, hy + dy, petal)
-    put(fx, hy, FLOWER_EYE)
-  }
-
-  // bones for the context window, buried in the path at the left (drawn over the soil, under nothing)
-  const left = bonesLeft(ctx)
-  const boneTop = (surface + 1) % 2 ? surface + 2 : surface + 1 // start on an even row so quarter blocks split it cleanly
-  for (let i = 0; i < 5; i++) {
-    BONE_SHAPE.forEach((row, y) => {
-      for (let x = 0; x < row.length; x++) if (row[x] === 'X') put(2 + i * 13 + x, boneTop + y, i < left ? BONE : BONE_EMPTY)
-    })
-  }
-
-  // Terry, at the 5-hour position
   const frame = set.frames[pick(set, ms)]
   const dogX = Math.round(((TW - SW + 6) * Math.min(100, pct)) / 100) - 4
+  const front = Math.min(TW - 1, dogX + Math.round(SW * 0.3)) // the ground burns up to his hind legs
+  for (let x = 0; x < TW; x++) {
+    if (x > front) { if (x % 4 < 2) canvas[ground][x] = [58, 58, 70]; continue }
+    const near = 1 - (front - x) / Math.max(16, front)
+    const tall = Math.round(1 + 5 * (0.5 + 0.28 * Math.sin(x * 0.95 + t * 7.3) + 0.14 * Math.sin(x * 0.35 - t * 4.1)) * (0.5 + 0.7 * near))
+    for (let k = 0; k < tall && ground - k >= 0; k++) {
+      const heat = Math.max(0.12, Math.min(1, (0.35 + 0.6 * near) * (1 - k / (tall + 0.6)) + 0.08 * Math.sin(x * 2.9 + t * 11)))
+      canvas[ground - k][x] = palette(pct, heat)
+    }
+  }
   for (let y = 0; y < frame.length; y++) {
     for (let x = 0; x < SW; x++) {
       const c = frame[y][x]
-      if (c) put(dogX + x, SKY + y, c)
+      if (c && dogX + x >= 0 && dogX + x < TW) canvas[y][dogX + x] = c
     }
   }
   return canvasToCells(canvas, columns, DOG_ROWS, mode)
