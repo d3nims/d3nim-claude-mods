@@ -78,7 +78,9 @@ test('Terry runs while Claude is working', async ($, on) => {
   await new Promise(r => setTimeout(r, 2600))
   await ui.redraw({ ...(WIDE as object), isWorking: false } as never)
   expect(await ui.find({ type: 'Text', text: /달리는 중/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /다 했어요/ })).toBeDefined()
+  // no model answer came in during this run (as with a slash command), so it is not kept as the last request
+  expect(await ui.find({ type: 'Text', text: /앉아서 기다리는 중/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /아직 요청이 없어요/ })).toBeDefined()
   await ui.unmount()
 })
 

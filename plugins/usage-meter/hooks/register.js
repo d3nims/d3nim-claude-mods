@@ -21,6 +21,7 @@ let modelId = null // 지금 모델 (/model 이 보여주는 것)
 let lastStepEffort = '(아직 요청 없음)'
 let stepCalls = 0
 let stepChunks = 0
+let countedChunks = 0
 let effortFrom = '없음' // 추론 강도를 어디서 읽었는지 (/terry debug)
 let effort = null // 추론 강도: 요청마다 turn.step 에서 읽는다. 첫 요청 전이거나 강도가 없는 모델이면 null
 let style = 'flame1' // 'flame1' (불꽃 밴드) | 'terry' (강아지)
@@ -81,6 +82,12 @@ function startTurn() {
 }
 function endTurn(reason) {
   if (!working) return
+  // no model answer came in (a slash command also flips the band's 'working' flag): forget it, keep the last real one
+  const hadAnswer = turn.genStart || turn.input || turn.output || turn.liveChars
+  if (!hadAnswer) {
+    working = false
+    return
+  }
   working = false
   turn.end = Date.now()
   turn.reason = reason
@@ -336,6 +343,7 @@ export function register(on) {
         yield chunk
         continue
       }
+      countedChunks += 1
       if (chunk.kind === 'text' || chunk.kind === 'thinking' || chunk.kind === 'input') {
         if (!turn.genStart) turn.genStart = Date.now()
         turn.liveChars += chunk.kind === 'input' ? chunk.json.length : chunk.text.length
@@ -411,7 +419,9 @@ export function register(on) {
             '마지막 요청의 effort 값: ' + lastStepEffort + ' / 요청 신호 ' + stepCalls + '번, 응답 조각 ' + stepChunks + '개',
             'CLAUDE_EFFORT: ' + env,
             '설정 항목: ' + rows,
-            '응답 중: ' + working + ' / 이번 요청 토큰: 입력 ' + turn.input + ' 출력 ' + turn.output + ' 추정 글자 ' + turn.liveChars,
+            '응답 중: ' + working + ' / 지금 요청 토큰: 입력 ' + turn.input + ' 출력 ' + turn.output + ' 추정 글자 ' + turn.liveChars,
+            '센 조각 ' + countedChunks + '개 / 건너뛴 조각 ' + (stepChunks - countedChunks) + '개 (응답 중이 아닐 때 온 것)',
+            '지난 요청: ' + (lastTurn ? turnLine(lastTurn, false).time + ' / ' + turnLine(lastTurn, false).tokens : '(없음)'),
           ].join('\n'),
         }
       }
