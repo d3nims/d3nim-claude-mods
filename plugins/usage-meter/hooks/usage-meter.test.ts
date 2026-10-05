@@ -7,6 +7,7 @@ const BAND = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80 
 function engine(on: any, five = 38, week = 71) {
   mock.store(on)
   mock.clock(on)
+  mock.env(on, { COLORTERM: 'truecolor' })
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: {} }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
@@ -16,8 +17,8 @@ function engine(on: any, five = 38, week = 71) {
       startedAt: 0,
       context: { percent: 12, window: 200000, tokens: 24000 },
       rateLimits: [
-        { kind: 'five_hour', percentUsed: five },
-        { kind: 'seven_day', percentUsed: week },
+        { kind: 'five_hour', percentUsed: five, resetsAt: new Date(Date.now() + (2 * 60 + 13) * 60000 + 30000).toISOString() },
+        { kind: 'seven_day', percentUsed: week, resetsAt: '2026-10-09T05:00:00.000Z' },
       ],
     },
   }))
@@ -32,6 +33,17 @@ test('the band draws three flames and three labels on the terminal', async ($, o
   expect(await ui.find({ type: 'Text', text: /주간 71%/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /대화 12%/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Opus 5\.5/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the reset times show on /terry', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 120 } as never })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /2시간 1[23]분 뒤 초기화/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /10\/9\(금\) 14시 초기화/ })).toBeDefined()
   await ui.unmount()
 })
 

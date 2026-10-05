@@ -48,6 +48,31 @@ const limitPct = kind => {
 const values = () => [limitPct('five_hour'), limitPct('seven_day'), usage?.context.percent ?? null]
 const show = v => (v == null ? '--' : Math.round(v) + '%')
 
+// 초기화 시각: 한도 정보의 resetsAt (ISO). 5시간은 '2시간 13분 뒤', 주간은 '10/9(목) 14시'.
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
+const limitReset = kind => {
+  const at = usage?.rateLimits.find(l => l.kind === kind)?.resetsAt
+  const t = at ? Date.parse(at) : NaN
+  return Number.isFinite(t) ? t : null
+}
+function resetText(i) {
+  if (i === 0) {
+    const t = limitReset('five_hour')
+    if (t == null) return null
+    const left = Math.max(0, t - Date.now())
+    const h = Math.floor(left / 3600000)
+    const m = Math.floor((left % 3600000) / 60000)
+    return left < 60000 ? '곧' : h > 0 ? h + '시간 ' + m + '분 뒤' : m + '분 뒤'
+  }
+  if (i === 1) {
+    const t = limitReset('seven_day')
+    if (t == null) return null
+    const d = new Date(t)
+    return d.getMonth() + 1 + '/' + d.getDate() + '(' + WEEKDAYS[d.getDay()] + ') ' + d.getHours() + '시'
+  }
+  return null
+}
+
 // 'claude-opus-5-5' -> 'Opus 5.5', 'claude-haiku-4-5-20251001' -> 'Haiku 4.5'
 function prettyModel(id) {
   if (!id) return null
@@ -198,8 +223,13 @@ export function register(on) {
     $.clock.every(30000, () => refresh($))
     await $.ui.toast(guide(), { timeoutMs: 12000 })
     // 터미널이 트루컬러를 알리지 않으면 Claude Code 가 256색으로 줄여 그린다 (테리가 청록색, 흙길이 회색으로 보임)
-    const colorterm = ((await $.env.get('COLORTERM')) || '').toLowerCase()
-    if (colorterm !== 'truecolor' && colorterm !== '24bit') {
+    let colorterm = ''
+    try {
+      colorterm = ((await $.env.get('COLORTERM')) || '').toLowerCase()
+    } catch (err) {
+      colorterm = 'unknown' // 읽을 수 없으면 안내하지 않는다
+    }
+    if (colorterm !== 'truecolor' && colorterm !== '24bit' && colorterm !== 'unknown') {
       await $.ui.toast('usage-meter: 색이 이상하게 보이면 셸 설정에 export COLORTERM=truecolor 를 넣고 Claude Code 를 다시 시작하세요 (지금은 256색으로 그려져요)', { timeoutMs: 12000 })
     }
     return next(e)
@@ -263,7 +293,7 @@ export function register(on) {
     // 세 층은 왼쪽 끝과 폭이 같아서 길이로 바로 비교된다. 숫자는 각 층의 오른쪽 끝에 붙는다.
     if (style === 'terry') {
       const name = prettyModel(modelId)
-      const LABEL = 12 // 층 끝에 붙는 '대화 100% !' 자리
+      const LABEL = 30 // 층 끝에 붙는 '주간 100% ! · 10/12(일) 14시 초기화' 자리
       const SIDE = Math.max(cardWidth(), LABEL) + 3
       const side = name != null && cols - 2 - SIDE >= DOG_COLS + 8
       const columns = Math.max(DOG_COLS + 8, Math.min(60, cols - 2 - (side ? SIDE : LABEL + 1)))
@@ -281,6 +311,7 @@ export function register(on) {
             Text({ key: 'lf' + i, color: stateColor(v), children: ['━'.repeat(filled)] }),
             Text({ key: 'le' + i, dimColor: true, children: ['─'.repeat(columns - filled)] }),
             Text({ key: 'll' + i, color: stateColor(v), bold: true, children: [' ' + label(i)] }),
+            Text({ key: 'lr' + i, dimColor: true, children: [resetText(i) ? ' · ' + resetText(i) + ' 초기화' : ''] }),
           ],
         })
       }
@@ -300,7 +331,14 @@ export function register(on) {
                 justifyContent: 'space-between',
                 children: [
                   side ? Box({ key: 'dog-card-wrap', marginLeft: 2, children: [modelCard(Box, Text, 'dog-card')] }) : Text({ key: 'dog-card-none', children: [''] }),
-                  Text({ key: 'l0', color: stateColor(pct), bold: true, children: [' ' + label(0)] }),
+                  Box({
+                    key: 'l0-row',
+                    flexDirection: 'row',
+                    children: [
+                      Text({ key: 'l0', color: stateColor(pct), bold: true, children: [' ' + label(0)] }),
+                      Text({ key: 'l0r', dimColor: true, children: [resetText(0) ? ' · ' + resetText(0) + ' 초기화' : ''] }),
+                    ],
+                  }),
                 ],
               }),
             ],
@@ -323,8 +361,18 @@ export function register(on) {
     const labels = BAND_NAMES.map((name, i) => {
       const pct = vals[i] ?? 0
       const text = name + ' ' + show(vals[i]) + (pct >= 90 ? ' !' : '')
-      const pad = ' '.repeat(Math.max(0, band.widths[i] + BAND_GAP - visible(text)))
-      return Text({ key: 'label' + i, color: stateColor(pct), children: [text + pad] })
+      const reset = resetText(i)
+      const room = band.widths[i] + BAND_GAP - 1
+      const extra = reset && visible(text + ' · ' + reset) <= room ? ' · ' + reset : ''
+      const pad = ' '.repeat(Math.max(0, band.widths[i] + BAND_GAP - visible(text + extra)))
+      return Box({
+        key: 'label' + i,
+        flexDirection: 'row',
+        children: [
+          Text({ key: 'lt' + i, color: stateColor(pct), children: [text] }),
+          Text({ key: 'lr' + i, dimColor: true, children: [extra + pad] }),
+        ],
+      })
     })
     return Box({
       flexDirection: 'column',
