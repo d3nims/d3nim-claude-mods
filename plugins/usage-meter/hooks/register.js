@@ -71,6 +71,15 @@ function startTurn() {
   turn.start = Date.now()
   lastActivity = turn.start
 }
+function endTurn(reason) {
+  if (!working) return
+  working = false
+  turn.end = Date.now()
+  turn.reason = reason
+  lastTurn = turn
+  lastActivity = turn.end
+  if (reason === 'answer') happyUntil = turn.end + 3500
+}
 
 // 사용법 안내 (불러올 때 알림창으로, /flame1 help 로도 볼 수 있다). 명령 하나당 한 줄.
 const guide = () =>
@@ -293,8 +302,12 @@ export function register(on) {
       effort = nextEffort
       $.ui.invalidate('ui.render')
     }
-    startTurn()
+    // 세기만 한다. 턴이 끝난 뒤의 모델 호출(다음 입력 제안 등)에서 달리기를 다시 켜면 안 된다.
     for await (const chunk of next(e)) {
+      if (!working) {
+        yield chunk
+        continue
+      }
       if (chunk.kind === 'text' || chunk.kind === 'thinking') {
         if (!turn.genStart) turn.genStart = Date.now()
         turn.liveChars += chunk.text.length
@@ -336,13 +349,8 @@ export function register(on) {
 
   // 응답 끝: 멈춰서 꼬리 흔들기 (중단이나 오류면 그냥 앉는다)
   on('turn.complete', async ($, e, next) => {
-    if (working) {
-      working = false
-      turn.end = Date.now()
-      turn.reason = e.reason
-      lastTurn = turn
-      lastActivity = turn.end
-      if (e.reason === 'answer') happyUntil = turn.end + 3500
+    if (working && !e.agentId) {
+      endTurn(e.reason)
       $.ui.invalidate('ui.render')
     }
     return next(e)
@@ -393,7 +401,9 @@ export function register(on) {
     // /terry 화면: 테리가 지금 일어나는 일에 반응한다. 평소엔 앉아 있다가, 입력을 시작하면 짖고, 치는 동안 꼬리를 흔들고,
     // 엔터를 치면 응답이 끝날 때까지 달리고, 끝나면 꼬리를 흔들고, 한참 조용하면 존다. 옆 카드에 이번 요청의 숫자.
     if (style === 'terry') {
-      if (e.props.isWorking && !working) startTurn()
+      // 화면이 알려 주는 '응답 중' 표시를 기준으로 맞춘다 (훅을 놓쳐도 달리기가 켜진 채로 남지 않게)
+      if (e.props.isWorking === true && !working) startTurn()
+      if (e.props.isWorking === false && working) endTurn('answer')
       const m = mood()
       drawnMood = m
       runAnim($, e.requestId, 'terry', TERRY_COLS, DOG_ROWS, () => terryCells(mood(), nowMs(), mode))
