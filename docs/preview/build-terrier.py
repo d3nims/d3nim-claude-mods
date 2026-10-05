@@ -411,27 +411,29 @@ for i in range(6):
 #   4 front feet land, hind legs swing forward
 DASH_KEYS = [
     # far legs sit a beat behind the near ones and at least a cell apart, so each gets a terminal cell of its own
-    dict(st=-0.6, bob=1.0, hx=1.0, wag=0.5, pitch=-0.10, hy=-0.5,
+    dict(st=-0.6, bob=0.6, hx=1.0, wag=0.5, pitch=-0.06,
          fn=((13.2, 16.0), (12.0, 17.3)), ff=((11.6, 16.3), (9.6, 17.9)),
          hn=((8.2, 15.8), (10.4, 17.1)), hf=((6.6, 16.2), (7.4, 18.0))),
-    dict(st=0.2, bob=0.3, hx=1.6, wag=0.0, pitch=-0.07, hy=-0.2,
+    dict(st=0.2, bob=0.2, hx=1.6, wag=0.0, pitch=-0.04,
          fn=((16.0, 15.6), (18.0, 17.3)), ff=((14.2, 16.4), (15.2, G - 0.1)),
          hn=((3.4, 16.2), (2.0, G)), hf=((5.0, 16.4), (4.6, G))),
-    dict(st=1.0, bob=0.8, hx=2.0, wag=-1.0, pitch=0.0, hy=0.2,
+    dict(st=1.0, bob=0.5, hx=2.0, wag=-1.0, pitch=0.0,
          fn=((17.2, 15.4), (19.6, 16.9)), ff=((15.4, 16.0), (16.8, 18.0)),
          hn=((2.0, 15.6), (-0.4, 16.9)), hf=((3.6, 16.0), (2.0, 17.9))),
-    dict(st=0.4, bob=0.0, hx=1.6, wag=0.0, pitch=0.09, hy=0.7,
+    dict(st=0.4, bob=0.0, hx=1.6, wag=0.0, pitch=0.05,
          fn=((15.8, 16.2), (16.8, G)), ff=((14.0, 16.4), (14.0, G)),
          hn=((5.4, 16.0), (6.4, 17.5)), hf=((4.0, 16.4), (3.8, 18.2))),
 ]
 
 
 def dash_frame(k):
+    # a running dog holds his head steady while the body rocks under it: cancel most of what bob and pitch do to the head
+    hy_ = 0.65 * (0.6 * k['bob'] - 8.4 * math.sin(k['pitch']))
     hf_, hh_ = HF - k['bob'], HH - k['bob']
     leg_ = lambda hip, y, kp: [(hip, y), kp[0], kp[1]]
     return terrier([leg_(13.4 + k['st'], hf_, k['fn']), leg_(12.2 + k['st'], hf_, k['ff'])],
                    [leg_(5.6 - k['st'], hh_, k['hn']), leg_(6.4 - k['st'], hh_, k['hf'])],
-                   bob=k['bob'], wag=k['wag'], dash=True, hx=k['hx'], st=k['st'], pitch=k['pitch'], hy=k['hy'])
+                   bob=k['bob'], wag=k['wag'], dash=True, hx=k['hx'], st=k['st'], pitch=k['pitch'], hy=hy_)
 
 
 DASH = []
