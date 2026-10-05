@@ -4,11 +4,10 @@
 // 뒤에 quad 또는 braille 을 붙이면 그림 방식을 바꿉니다 (예: /terry braille)
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
-import { BAND_GAP, BAND_NAMES, DOG_COLS, DOG_ROWS, dogCells, makeBand, stateColor } from './render.js'
+import { BAND_GAP, BAND_NAMES, DOG_COLS, DOG_ROWS, bonesLeft, makeBand, stateColor, walkCells } from './render.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 66 // 약 15프레임
-const MINI_BAR = 14 // /terry 화면 아래의 작은 게이지 칸 수
 
 const startedAt = Date.now()
 const nowMs = () => Date.now() - startedAt
@@ -67,12 +66,12 @@ function modelTexts(Text, prefix, lead) {
   if (!name) return []
   const parts = [Text({ key: prefix + 'm', color: MODEL_COLOR, bold: true, children: [lead + name] })]
   if (effort) {
-    parts.push(Text({ key: prefix + 'sep', dimColor: true, children: [' · 강도 '] }))
+    parts.push(Text({ key: prefix + 'sep', dimColor: true, children: [' · 추론 '] }))
     parts.push(Text({ key: prefix + 'e', color: effortColor(effort), children: [effort] }))
   }
   return parts
 }
-// 모델 카드: 둥근 테두리 안에 두 줄 (모델 / 강도). 테두리까지 4줄이라 불꽃 밴드 높이와 같다.
+// 모델 카드: 둥근 테두리 안에 두 줄 (모델 / 추론). 테두리까지 4줄이라 불꽃 밴드 높이와 같다.
 const CARD_BORDER = '#5a5f73'
 function modelCard(Box, Text, key) {
   const name = prettyModel(modelId)
@@ -89,7 +88,7 @@ function modelCard(Box, Text, key) {
         key: key + '-e',
         flexDirection: 'row',
         children: [
-          Text({ key: key + '-ek', dimColor: true, children: ['강도 '] }),
+          Text({ key: key + '-ek', dimColor: true, children: ['추론 '] }),
           Text({ key: key + '-ev', color: effort ? effortColor(effort) : undefined, dimColor: !effort, children: [effort ?? '--'] }),
         ],
       }),
@@ -99,12 +98,12 @@ function modelCard(Box, Text, key) {
 // 카드가 차지하는 폭 (테두리 2 + 안쪽 여백 2 + 글자)
 const cardWidth = () => {
   const name = prettyModel(modelId)
-  return name ? Math.max(visible(name), visible('강도 ' + (effort ?? '--'))) + 4 : 0
+  return name ? Math.max(visible(name), visible('추론 ' + (effort ?? '--'))) + 4 : 0
 }
 const modelLine = () => {
   const name = prettyModel(modelId)
   if (!name) return null
-  return effort ? name + ' · 강도 ' + effort : name
+  return effort ? name + ' · 추론 ' + effort : name
 }
 
 // 한글은 두 칸을 차지한다
@@ -116,6 +115,18 @@ async function refresh($) {
     modelId = await $.session.model()
   } catch (err) {
     // 모델 이름은 없어도 밴드는 그린다
+  }
+  // 추론 강도는 요청마다 turn.step 에서 받지만, 불러온 직후(첫 요청 전)에는 환경 변수와 설정에서 먼저 읽어 둔다
+  if (!effort) {
+    try {
+      effort = (await $.env.get('CLAUDE_EFFORT')) || null
+    } catch (err) {}
+  }
+  if (!effort) {
+    try {
+      const row = (await $.config.list()).find(r => /effort/i.test(r.key))
+      if (row && typeof row.value === 'string' && row.value) effort = row.value
+    } catch (err) {}
   }
 
   for (const limit of usage.rateLimits) {
@@ -243,7 +254,7 @@ export function register(on) {
       })
     }
 
-    // /terry 화면: 강아지가 사용량(5시간) 위치까지 달린다
+    // /terry 화면: 테리의 산책. 5시간 = 달린 거리, 주간 = 하늘의 해, 대화 = 흙에 묻힌 뼈다귀
     if (style === 'terry') {
       // 모델과 추론 강도는 강아지 오른쪽 빈 곳에 세로로 둔다. 자리가 모자라면 아래 줄에 붙인다.
       const name = prettyModel(modelId)
@@ -251,8 +262,8 @@ export function register(on) {
       const side = name != null && cols - 2 - SIDE >= DOG_COLS + 8
       const columns = Math.max(DOG_COLS + 8, Math.min(64, cols - 2 - (side ? SIDE : 0)))
       const pct = vals[0] ?? 0
-      runAnim($, e.requestId, 'dog', columns, DOG_ROWS, () => dogCells(columns, values()[0] ?? 0, nowMs(), mode))
-      const dog = Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: dogCells(columns, pct, nowMs(), mode) })
+      runAnim($, e.requestId, 'dog', columns, DOG_ROWS, () => walkCells(columns, values(), nowMs(), mode))
+      const dog = Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: walkCells(columns, vals, nowMs(), mode) })
       return Box({
         flexDirection: 'column',
         children: [
@@ -272,28 +283,19 @@ export function register(on) {
                 ],
               })
             : dog,
-          // 강아지가 달리는 위치는 5시간. 주간과 대화는 아래에 작은 게이지로 따로 보여준다
+          // 장면 읽는 법: 숫자와 그림을 짝지어 한 줄로
           Box({
-            key: 'dog-main',
+            key: 'dog-legend',
             flexDirection: 'row',
             children: [
-              Text({ key: 'dm-label', color: stateColor(pct), bold: true, children: ['5시간 ' + show(vals[0])] }),
+              Text({ key: 'dl0', color: stateColor(pct), bold: true, children: ['5시간 ' + show(vals[0])] }),
+              Text({ key: 'dl0h', dimColor: true, children: [' 달린 거리   '] }),
+              Text({ key: 'dl1', color: stateColor(vals[1] ?? 0), bold: true, children: ['주간 ' + show(vals[1])] }),
+              Text({ key: 'dl1h', dimColor: true, children: [(vals[1] ?? 0) >= 100 ? ' 달   ' : (vals[1] ?? 0) >= 80 ? ' 노을   ' : ' 해   '] }),
+              Text({ key: 'dl2', color: stateColor(vals[2] ?? 0), bold: true, children: ['대화 ' + show(vals[2])] }),
+              Text({ key: 'dl2h', dimColor: true, children: [' 뼈다귀 ' + bonesLeft(vals[2]) + '/5'] }),
               ...(side ? [] : modelTexts(Text, 'dm-', '   ')),
-              Text({ key: 'dm-hint', dimColor: true, children: ['   (강아지가 달리는 위치 · /flame1 로 불꽃 밴드)'] }),
             ],
-          }),
-          Box({
-            key: 'dog-sub',
-            flexDirection: 'row',
-            children: [1, 2].flatMap(i => {
-              const v = vals[i]
-              const filled = Math.round(((v ?? 0) / 100) * MINI_BAR)
-              return [
-                Text({ key: 'ds-l' + i, color: stateColor(v ?? 0), children: [BAND_NAMES[i] + ' ' + show(v) + ' '] }),
-                Text({ key: 'ds-f' + i, color: stateColor(v ?? 0), children: ['█'.repeat(filled)] }),
-                Text({ key: 'ds-e' + i, dimColor: true, children: ['░'.repeat(MINI_BAR - filled) + (i === 1 ? '    ' : '')] }),
-              ]
-            }),
           }),
         ],
       })

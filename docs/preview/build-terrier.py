@@ -214,10 +214,10 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0):
         for x in range(X0, X1):
             if 0 <= x < CW and 0 <= y < CH and img[y][x] == 'W' and hash2((x + (y // 2) % 2) // 2, y // 2) < 30:
                 img[y][x] = 'm'
-    # eye: soft socket, dark almond, a spark of light
-    ellipse(img, 19.9, 4.35 + dy, 1.0, 0.72, 'm', tilt=0.25, clip=lambda k: k in 'Wm')
-    ellipse(img, 19.9, 4.4 + dy, 0.62, 0.4, 'E', tilt=0.25)
-    put(img, sub(19.75), sub(4.25 + dy), 'W')
+    # eye: a dark almond
+    # kept plain and a little larger than life: on a terminal cell (two colours at most) a socket ring or a spark
+    # of light would crowd the eye out
+    ellipse(img, 19.9, 4.4 + dy, 0.8, 0.55, 'E', tilt=0.25)
     # big dark nose at the very tip, with a shine
     ellipse(img, 23.75, 5.5 + dy, 0.95, 0.8, 'N', tilt=0.2)
     put(img, sub(23.5), sub(5.2 + dy), 'h')
