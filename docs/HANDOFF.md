@@ -87,7 +87,7 @@ d3nim-claude-mods/
   - 나중에 불꽃 스타일을 더 만들면 `/flame2`처럼 늘릴 계획.
   - 불러올 때(리로드·세션 시작) 사용법 알림창이 뜬다. `/flame1 help`로도 볼 수 있다.
   - 0.3.0: 현재 모델과 추론 강도를 같이 보여준다(예: `Opus 5.5 · 추론 high`). 모델은 `$.session.model()`, 강도는 요청마다 오는 `turn.step`의 `e.effort`에서 읽는다(첫 요청 전이거나 강도가 없는 모델이면 모델 이름만).
-  - `/terry`에서는 주간·대화를 작은 게이지로 따로 보여준다.
+  - `/terry`에서는 주간·대화를 작은 게이지로 따로 보여준다. 모델·추론 강도는 강아지 오른쪽 빈 곳에 세로로(0.3.1, 폭이 좁으면 아래 줄로).
   - 불꽃 색은 10단계로 고정: `Raster`가 색 조합 약 1024개까지만 정확히 칠하기 때문(안 그러면 강아지 색이 틀어짐).
 
 ### 팀원이 업데이트 받는 법
@@ -116,5 +116,6 @@ claude plugin update usage-meter@d3nim-claude-mods
 - 파이리(포켓몬) 실험 파일은 저작권 문제로 저장소에 올리기 전에 지웠다. 불꽃·테리 관련만 남김.
 
 ### 남은 일
-- git init → private repo → push (`.gitattributes`로 `* text=auto eol=lf` 추천, 기존 메모 참고)
+- ~~git init → private repo → push~~ 완료: https://github.com/d3nims/d3nim-claude-mods (private, main). `.gitattributes`로 `* text=auto eol=lf`. 작성자는 저장소 로컬 설정(d3nim / tglaon@gmail.com).
+- 동료 설치 테스트: `claude plugin marketplace add d3nims/d3nim-claude-mods` → `claude plugin install usage-meter@d3nim-claude-mods` (private이라 동료가 저장소 접근 권한 + GitHub 로그인 필요)
 - 안전장치 mod(2순위)

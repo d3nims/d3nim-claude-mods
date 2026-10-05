@@ -202,20 +202,45 @@ export function register(on) {
 
     // /terry 화면: 강아지가 사용량(5시간) 위치까지 달린다
     if (style === 'terry') {
-      const columns = Math.max(DOG_COLS + 8, Math.min(64, cols - 2))
+      // 모델과 추론 강도는 강아지 오른쪽 빈 곳에 세로로 둔다. 자리가 모자라면 아래 줄에 붙인다.
+      const name = prettyModel(modelId)
+      const SIDE = 22
+      const side = name != null && cols - 2 - SIDE >= DOG_COLS + 8
+      const columns = Math.max(DOG_COLS + 8, Math.min(64, cols - 2 - (side ? SIDE : 0)))
       const pct = vals[0] ?? 0
       runAnim($, e.requestId, 'dog', columns, DOG_ROWS, () => dogCells(columns, values()[0] ?? 0, nowMs(), mode))
+      const dog = Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: dogCells(columns, pct, nowMs(), mode) })
       return Box({
         flexDirection: 'column',
         children: [
-          Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: dogCells(columns, pct, nowMs(), mode) }),
+          side
+            ? Box({
+                key: 'dog-row',
+                flexDirection: 'row',
+                children: [
+                  dog,
+                  Box({
+                    key: 'dog-side',
+                    flexDirection: 'column',
+                    marginLeft: 3,
+                    paddingTop: Math.max(0, Math.floor(DOG_ROWS / 2) - 2),
+                    children: [
+                      Text({ key: 'ds-model-k', dimColor: true, children: ['모델'] }),
+                      Text({ key: 'ds-model', bold: true, children: [name] }),
+                      Text({ key: 'ds-effort-k', dimColor: true, children: ['추론 강도'] }),
+                      Text({ key: 'ds-effort', bold: true, children: [effort ?? '첫 요청 후 표시'] }),
+                    ],
+                  }),
+                ],
+              })
+            : dog,
           // 강아지가 달리는 위치는 5시간. 주간과 대화는 아래에 작은 게이지로 따로 보여준다
           Box({
             key: 'dog-main',
             flexDirection: 'row',
             children: [
               Text({ key: 'dm-label', color: stateColor(pct), bold: true, children: ['5시간 ' + show(vals[0])] }),
-              Text({ key: 'dm-model', dimColor: true, children: [modelLine() ? '   ' + modelLine() : ''] }),
+              Text({ key: 'dm-model', dimColor: true, children: [!side && modelLine() ? '   ' + modelLine() : ''] }),
               Text({ key: 'dm-hint', dimColor: true, children: ['   (강아지가 달리는 위치 · /flame1 로 불꽃 밴드)'] }),
             ],
           }),
