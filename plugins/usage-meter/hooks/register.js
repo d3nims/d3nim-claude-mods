@@ -57,11 +57,11 @@ function prettyModel(id) {
   const version = parts.slice(1).filter(p => /^\d{1,2}$/.test(p)).join('.')
   return version ? family + ' ' + version : family
 }
-// 밴드 아래 줄이나 강아지 화면 위에 붙는 짧은 표기. 예: 'Opus 5.5 · 추론 high'
+// 밴드 아래 줄이나 강아지 화면 아래에 붙는 짧은 표기. 예: 'Opus 5.5 · high'
 const modelLine = () => {
   const name = prettyModel(modelId)
   if (!name) return null
-  return effort ? name + ' · 추론 ' + effort : name
+  return effort ? name + ' · ' + effort : name
 }
 
 // 한글은 두 칸을 차지한다
@@ -225,10 +225,8 @@ export function register(on) {
                     marginLeft: 3,
                     paddingTop: Math.max(0, Math.floor(DOG_ROWS / 2) - 2),
                     children: [
-                      Text({ key: 'ds-model-k', dimColor: true, children: ['모델'] }),
                       Text({ key: 'ds-model', bold: true, children: [name] }),
-                      Text({ key: 'ds-effort-k', dimColor: true, children: ['추론 강도'] }),
-                      Text({ key: 'ds-effort', bold: true, children: [effort ?? '첫 요청 후 표시'] }),
+                      Text({ key: 'ds-effort', dimColor: true, children: [effort ?? ''] }),
                     ],
                   }),
                 ],
