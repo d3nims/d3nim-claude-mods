@@ -84,6 +84,19 @@ test('Terry runs while Claude is working', async ($, on) => {
   await ui.unmount()
 })
 
+test('/terry run shows him running without a request, and /terry stop ends it', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  await $.command.run({ command: 'terry', args: 'run' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /달리는 중 · 미리보기/ })).toBeDefined()
+  await $.command.run({ command: 'terry', args: 'stop' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /앉아서 기다리는 중/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a surface without Raster still gets the percentages as text', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })

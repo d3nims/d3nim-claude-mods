@@ -44,8 +44,23 @@ let barkUntil = 0
 let typingUntil = 0
 let happyUntil = 0
 let drawnMood = null
+// /terry run 처럼 동작을 골라 잠깐 보여 주는 미리보기 (응답 중이 아니어도 볼 수 있게)
+let previewMood = null
+let previewUntil = 0
+const PREVIEW_MS = 20000
+const previewing = () => previewMood !== null && Date.now() < previewUntil
+const PREVIEW_ARGS = {
+  run: 'run', 달리기: 'run', 뛰기: 'run',
+  sit: 'sit', 앉기: 'sit',
+  wag: 'wag', 꼬리: 'wag',
+  bark: 'bark', 짖기: 'bark',
+  happy: 'happy', 헥헥: 'happy',
+  sleep: 'sleep', 잠: 'sleep', 졸기: 'sleep',
+}
+
 function mood() {
   const now = Date.now()
+  if (previewing()) return previewMood
   if (working) return 'run'
   if (now < barkUntil) return 'bark'
   if (now < typingUntil) return 'wag'
@@ -104,6 +119,7 @@ const guide = () =>
     '/flame1 braille : 파란 불꽃 밴드, 점자로 그림 (더 곱지만 알알이 보일 수 있음)',
     '/terry quad     : 달리는 강아지, 꽉 찬 블록으로 그림',
     '/terry braille  : 달리는 강아지, 점자로 그림',
+    '/terry run      : 20초 동안 달리는 모습 미리보기 (sit · wag · bark · happy · sleep 도 됨, stop 으로 끝내기)',
   ].join('\n')
 
 const LABELS = { five_hour: '5시간', seven_day: '주간', spend_limit: '지출' }
@@ -425,6 +441,15 @@ export function register(on) {
           ].join('\n'),
         }
       }
+      if (name === 'terry' && (arg in PREVIEW_ARGS || arg === 'stop')) {
+        previewMood = arg === 'stop' ? null : PREVIEW_ARGS[arg]
+        previewUntil = arg === 'stop' ? 0 : Date.now() + PREVIEW_MS
+        style = 'terry'
+        await $.store.set('style', style)
+        stopAnim()
+        $.ui.invalidate('ui.render')
+        return { text: previewMood ? MOOD_TEXT[previewMood] + ' 모습을 20초 동안 보여 줄게요 (/terry stop 으로 끝내기)' : '미리보기를 끝냈어요' }
+      }
       if (arg === 'quad' || arg === 'braille') {
         mode = arg
         await $.store.set('mode', mode)
@@ -474,7 +499,7 @@ export function register(on) {
         borderColor: CARD_BORDER,
         paddingX: 1,
         children: [
-          Text({ key: 'tc-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' ? '#9be08a' : m === 'bark' ? '#ffd166' : undefined, children: [MOOD_TEXT[m]] }),
+          Text({ key: 'tc-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' ? '#9be08a' : m === 'bark' ? '#ffd166' : undefined, children: [MOOD_TEXT[m] + (previewing() ? ' · 미리보기' : '')] }),
           Box({
             key: 'tc-model',
             flexDirection: 'row',
