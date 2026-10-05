@@ -1,0 +1,4 @@
+# Same line endings whether this folder is committed from WSL or from Windows
+* text=auto eol=lf
+*.png binary
+*.gif binary
