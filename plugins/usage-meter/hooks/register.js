@@ -4,7 +4,7 @@
 // 뒤에 quad 또는 braille 을 붙이면 그림 방식을 바꿉니다 (예: /terry braille)
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
-import { BAND_GAP, BAND_NAMES, DOG_COLS, DOG_ROWS, dogCells, makeBand, stateColor } from './render.js'
+import { BAND_GAP, BAND_NAMES, DOG_ROWS, TERRY_COLS, makeBand, stateColor, terryCells } from './render.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 66 // 약 15프레임
@@ -25,6 +25,52 @@ let lastContextTier = 0
 // 움직이는 그림을 다시 그리는 타이머
 let anim = null
 let denies = 0
+
+// 테리의 기분: 지금 무슨 일이 일어나는지에 따라 바뀐다
+const SLEEP_AFTER = 3 * 60 * 1000 // 이만큼 조용하면 존다
+let working = false // Claude 가 응답 중
+let lastActivity = Date.now()
+let lastEdit = 0
+let barkUntil = 0
+let typingUntil = 0
+let happyUntil = 0
+let drawnMood = null
+function mood() {
+  const now = Date.now()
+  if (working) return 'run'
+  if (now < barkUntil) return 'bark'
+  if (now < typingUntil) return 'wag'
+  if (now < happyUntil) return 'happy'
+  if (now - lastActivity > SLEEP_AFTER) return 'sleep'
+  return 'sit'
+}
+const MOOD_TEXT = { sit: '앉아서 기다리는 중', wag: '입력하는 걸 보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요 zZ' }
+
+// 이번 요청(턴)의 숫자: 걸린 시간, 토큰, 초당 토큰
+const blankTurn = () => ({ start: 0, genStart: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, liveChars: 0, end: 0, reason: null })
+let turn = blankTurn()
+let lastTurn = null
+// 응답이 흘러오는 동안의 추정 토큰 (요청이 끝나면 API 가 준 정확한 값으로 바뀐다): 영문 4글자, 한글 1글자 = 1토큰 정도
+const estimate = chars => Math.round(chars / 3)
+const fmtTokens = n => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n))
+function turnLine(t, live) {
+  const end = live ? Date.now() : t.end
+  const secs = Math.max(0, (end - t.start) / 1000)
+  const out = t.output + estimate(t.liveChars)
+  const genSecs = t.genStart ? Math.max(0.5, (end - t.genStart) / 1000) : 0
+  const tps = genSecs ? Math.round(out / genSecs) : 0
+  return {
+    time: (secs < 60 ? secs.toFixed(1) + '초' : Math.floor(secs / 60) + '분 ' + Math.round(secs % 60) + '초') + (tps ? ' · ' + tps + ' tok/s' : ''),
+    tokens: '입력 ' + fmtTokens(t.input) + ' · 출력 ' + fmtTokens(out) + ' · 캐시 ' + fmtTokens(t.cacheRead),
+  }
+}
+function startTurn() {
+  if (working) return
+  working = true
+  turn = blankTurn()
+  turn.start = Date.now()
+  lastActivity = turn.start
+}
 
 // 사용법 안내 (불러올 때 알림창으로, /flame1 help 로도 볼 수 있다). 명령 하나당 한 줄.
 const guide = () =>
@@ -221,6 +267,9 @@ export function register(on) {
     mode = (await $.store.get('mode')) === 'braille' ? 'braille' : 'quad'
     await refresh($)
     $.clock.every(30000, () => refresh($))
+    $.clock.every(1000, () => {
+      if (style === 'terry' && (working || mood() !== drawnMood)) $.ui.invalidate('ui.render')
+    })
     await $.ui.toast(guide(), { timeoutMs: 12000 })
     // 터미널이 트루컬러를 알리지 않으면 Claude Code 가 256색으로 줄여 그린다 (테리가 청록색, 흙길이 회색으로 보임)
     let colorterm = ''
@@ -244,7 +293,59 @@ export function register(on) {
       effort = nextEffort
       $.ui.invalidate('ui.render')
     }
-    return yield* next(e)
+    startTurn()
+    for await (const chunk of next(e)) {
+      if (chunk.kind === 'text' || chunk.kind === 'thinking') {
+        if (!turn.genStart) turn.genStart = Date.now()
+        turn.liveChars += chunk.text.length
+      } else if (chunk.kind === 'stop' && chunk.usage) {
+        turn.input += chunk.usage.input_tokens
+        turn.output += chunk.usage.output_tokens
+        turn.cacheRead += chunk.usage.cache_read_input_tokens
+        turn.cacheWrite += chunk.usage.cache_creation_input_tokens
+        turn.liveChars = 0
+      }
+      yield chunk
+    }
+  })
+
+  // 입력을 시작하면 짖고, 치는 동안 꼬리를 흔든다
+  on('prompt.edit', async ($, e, next) => {
+    const now = Date.now()
+    if (!working) {
+      if (now - lastEdit > 6000) barkUntil = now + 1400
+      typingUntil = now + 3500
+    }
+    lastEdit = now
+    lastActivity = now
+    return next(e)
+  })
+
+  // 엔터: 달리기 시작
+  on('prompt.submit', async ($, e, next) => {
+    startTurn()
+    barkUntil = 0
+    typingUntil = 0
+    $.ui.invalidate('ui.render')
+    return next(e)
+  })
+  on('turn.start', async ($, e, next) => {
+    startTurn()
+    return next(e)
+  })
+
+  // 응답 끝: 멈춰서 꼬리 흔들기 (중단이나 오류면 그냥 앉는다)
+  on('turn.complete', async ($, e, next) => {
+    if (working) {
+      working = false
+      turn.end = Date.now()
+      turn.reason = e.reason
+      lastTurn = turn
+      lastActivity = turn.end
+      if (e.reason === 'answer') happyUntil = turn.end + 3500
+      $.ui.invalidate('ui.render')
+    }
+    return next(e)
   })
 
   // 턴이 끝날 때와 한도 % 가 바뀔 때
@@ -289,63 +390,59 @@ export function register(on) {
       })
     }
 
-    // /terry 화면: 3층 땅. 테리가 서 있는 불꽃 막대 = 5시간, 그 아래 얇은 선 두 줄 = 주간, 대화.
-    // 세 층은 왼쪽 끝과 폭이 같아서 길이로 바로 비교된다. 숫자는 각 층의 오른쪽 끝에 붙는다.
+    // /terry 화면: 테리가 지금 일어나는 일에 반응한다. 평소엔 앉아 있다가, 입력을 시작하면 짖고, 치는 동안 꼬리를 흔들고,
+    // 엔터를 치면 응답이 끝날 때까지 달리고, 끝나면 꼬리를 흔들고, 한참 조용하면 존다. 옆 카드에 이번 요청의 숫자.
     if (style === 'terry') {
+      if (e.props.isWorking && !working) startTurn()
+      const m = mood()
+      drawnMood = m
+      runAnim($, e.requestId, 'terry', TERRY_COLS, DOG_ROWS, () => terryCells(mood(), nowMs(), mode))
       const name = prettyModel(modelId)
-      const LABEL = 30 // 층 끝에 붙는 '주간 100% ! · 10/12(일) 14시 초기화' 자리
-      const SIDE = Math.max(cardWidth(), LABEL) + 3
-      const side = name != null && cols - 2 - SIDE >= DOG_COLS + 8
-      const columns = Math.max(DOG_COLS + 8, Math.min(60, cols - 2 - (side ? SIDE : LABEL + 1)))
-      const pct = vals[0] ?? 0
-      runAnim($, e.requestId, 'dog', columns, DOG_ROWS, () => dogCells(columns, values()[0] ?? 0, nowMs(), mode))
-      const label = i => BAND_NAMES[i] + ' ' + show(vals[i]) + ((vals[i] ?? 0) >= 90 ? ' !' : '')
-      // 얇은 층 한 줄: 쓴 만큼 굵은 선, 나머지 가는 선, 끝에 이름과 숫자
-      const layer = i => {
-        const v = vals[i] ?? 0
-        const filled = v <= 0 ? 0 : Math.max(1, Math.round((Math.min(100, v) / 100) * columns))
-        return Box({
-          key: 'layer' + i,
-          flexDirection: 'row',
-          children: [
-            Text({ key: 'lf' + i, color: stateColor(v), children: ['━'.repeat(filled)] }),
-            Text({ key: 'le' + i, dimColor: true, children: ['─'.repeat(columns - filled)] }),
-            Text({ key: 'll' + i, color: stateColor(v), bold: true, children: [' ' + label(i)] }),
-            Text({ key: 'lr' + i, dimColor: true, children: [resetText(i) ? ' · ' + resetText(i) + ' 초기화' : ''] }),
-          ],
-        })
-      }
+      const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
+      const card = Box({
+        key: 'terry-card',
+        flexDirection: 'column',
+        borderStyle: 'round',
+        borderColor: CARD_BORDER,
+        paddingX: 1,
+        children: [
+          Text({ key: 'tc-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' ? '#9be08a' : m === 'bark' ? '#ffd166' : undefined, children: [MOOD_TEXT[m]] }),
+          Box({
+            key: 'tc-model',
+            flexDirection: 'row',
+            children: name
+              ? [
+                  Text({ key: 'tc-m', color: MODEL_COLOR, bold: true, children: [name] }),
+                  Text({ key: 'tc-ek', dimColor: true, children: [' · 추론 '] }),
+                  Text({ key: 'tc-e', color: effort ? effortColor(effort) : undefined, dimColor: !effort, children: [effort ?? '--'] }),
+                ]
+              : [Text({ key: 'tc-none', dimColor: true, children: ['모델 정보 기다리는 중'] })],
+          }),
+          Text({ key: 'tc-time', dimColor: !working, children: [t ? (working ? '' : '지난 요청 ') + t.time : '아직 요청이 없어요'] }),
+          Text({ key: 'tc-tokens', dimColor: true, children: [t ? t.tokens : ' '] }),
+        ],
+      })
+      // 사용량은 한 줄로 작게
+      const usageLine = Box({
+        key: 'terry-usage',
+        flexDirection: 'row',
+        children: BAND_NAMES.flatMap((nm, i) => {
+          const reset = resetText(i)
+          return [
+            Text({ key: 'tu' + i, color: stateColor(vals[i] ?? 0), bold: true, children: [nm + ' ' + show(vals[i])] }),
+            Text({ key: 'tr' + i, dimColor: true, children: [(reset ? ' · ' + reset : '') + (i < 2 ? '   ' : '')] }),
+          ]
+        }),
+      })
+      const dog = Raster({ key: 'terry', columns: TERRY_COLS, rows: DOG_ROWS, cells: terryCells(m, nowMs(), mode) })
+      const wide = cols >= TERRY_COLS + 40
       return Box({
         flexDirection: 'column',
         children: [
-          Box({
-            key: 'dog-row',
-            flexDirection: 'row',
-            children: [
-              Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: dogCells(columns, pct, nowMs(), mode) }),
-              // 오른쪽: 위에는 모델 카드, 맨 아래 줄(불꽃 막대 높이)에는 5시간 숫자
-              Box({
-                key: 'dog-side',
-                flexDirection: 'column',
-                height: DOG_ROWS,
-                justifyContent: 'space-between',
-                children: [
-                  side ? Box({ key: 'dog-card-wrap', marginLeft: 2, children: [modelCard(Box, Text, 'dog-card')] }) : Text({ key: 'dog-card-none', children: [''] }),
-                  Box({
-                    key: 'l0-row',
-                    flexDirection: 'row',
-                    children: [
-                      Text({ key: 'l0', color: stateColor(pct), bold: true, children: [' ' + label(0)] }),
-                      Text({ key: 'l0r', dimColor: true, children: [resetText(0) ? ' · ' + resetText(0) + ' 초기화' : ''] }),
-                    ],
-                  }),
-                ],
-              }),
-            ],
-          }),
-          layer(1),
-          layer(2),
-          ...(side ? [] : [Box({ key: 'dog-model', flexDirection: 'row', children: modelTexts(Text, 'dm-', '') })]),
+          wide
+            ? Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-side', marginLeft: 2, paddingTop: 2, children: [card] })] })
+            : Box({ key: 'terry-col', flexDirection: 'column', children: [dog, card] }),
+          usageLine,
         ],
       })
     }

@@ -71,6 +71,11 @@ function cellOf(units, mode) {
 
 /** canvas: rows*4 lines of cols*2 colours (or null). Returns the packed cells for a rows x cols Raster. */
 export function canvasToCells(canvas, cols, rows, mode) {
+  return packCells(canvasToCellList(canvas, cols, rows, mode))
+}
+
+/** As canvasToCells, but the [codePoint, fg, bg] list itself, so text can be written over some cells first. */
+function canvasToCellList(canvas, cols, rows, mode) {
   const cells = []
   for (let r = 0; r < rows; r++) {
     for (let cx = 0; cx < cols; cx++) {
@@ -92,7 +97,18 @@ export function canvasToCells(canvas, cols, rows, mode) {
       cells.push(cellOf(units, mode))
     }
   }
-  return packCells(cells)
+  return cells
+}
+
+/** Writes ASCII `text` into a cell list (cols wide) at cell x, row y: each character keeps its cell's colour behind it. */
+function writeText(cells, cols, x, y, text, fg) {
+  for (let i = 0; i < text.length; i++) {
+    const cx = x + i
+    if (cx < 0 || cx >= cols) continue
+    const cell = cells[y * cols + cx]
+    const behind = cell[0] === 0x2588 ? cell[1] : cell[2] // a full block's colour is its foreground
+    cells[y * cols + cx] = [text.charCodeAt(i), fg, behind]
+  }
 }
 
 // ---- Noise and colours ------------------------------------------------------------------------------
@@ -311,4 +327,39 @@ export function dogCells(columns, pct, ms, mode) {
     }
   }
   return canvasToCells(canvas, columns, DOG_ROWS, mode)
+}
+
+// ---- Terry reacting to the session ------------------------------------------------------------------------
+// mood -> which frames: sit (idle), wag (you are typing), bark (you just started typing), run (Claude is working),
+// happy (the answer just landed), sleep (nothing for a while)
+const MOOD_FRAMES = { sit: 'sit', wag: 'wag', bark: 'bark', run: 'run', happy: 'pant', sleep: 'sleep' }
+export const TERRY_COLS = DOG_COLS + 6
+
+/** Terry in `mood`, ms since start: his frames, a dotted ground that slides while he runs, and a mark by his head. */
+export function terryCells(mood, ms, mode) {
+  const columns = TERRY_COLS
+  const TW = columns * 2
+  const canvas = Array.from({ length: DOG_ROWS * 4 }, () => Array(TW).fill(null))
+  const set = SETS[MOOD_FRAMES[mood]] || SETS.sit
+  const frame = set.frames[pick(set, ms)]
+  const dogX = 2
+  const off = mood === 'run' ? Math.floor((ms / 1000) * 18) : 0
+  for (let x = 0; x < TW; x++) if ((x + off) % 4 < 2) canvas[ground][x] = [70, 72, 88]
+  for (let y = 0; y < frame.length; y++) {
+    for (let x = 0; x < SW; x++) {
+      const c = frame[y][x]
+      if (c && dogX + x < TW) canvas[y][dogX + x] = c
+    }
+  }
+  const cells = canvasToCellList(canvas, columns, DOG_ROWS, mode)
+  const markX = Math.ceil((dogX + SW) / 2)
+  if (mood === 'bark' && Math.floor(ms / 340) % 2 === 0) writeText(cells, columns, markX, 1, '!', 0xffd166)
+  if (mood === 'happy' && Math.floor(ms / 300) % 2 === 0) writeText(cells, columns, markX, 0, '*', 0xffd166)
+  if (mood === 'sleep') {
+    const phase = Math.floor(ms / 700) % 3
+    writeText(cells, columns, markX - 3, 3, 'z', 0x9aa4c8)
+    if (phase >= 1) writeText(cells, columns, markX - 2, 2, 'Z', 0x9aa4c8)
+    if (phase >= 2) writeText(cells, columns, markX - 1, 1, 'Z', 0xb8c0e0)
+  }
+  return packCells(cells)
 }

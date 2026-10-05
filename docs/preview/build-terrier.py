@@ -48,6 +48,7 @@ COL = {
     'h': (118, 118, 134),             # shine on the nose
     'E': (24, 20, 26),                # eye
     'T': (236, 112, 128),             # tongue
+    'M': (112, 36, 50),               # inside of the open mouth
     't': (196, 78, 98),
     'K': INK,
 }
@@ -143,7 +144,7 @@ def outline(img):
                 nx, ny = x + dx, y + dy
                 if 0 <= nx < CW and 0 <= ny < CH and img[ny][nx] != '.':
                     k = img[ny][nx]
-                    if k in 'NEhTt':
+                    if k in 'NEhTtM':
                         k = 'K'
                     key = 'o' + k
                     if key not in COL:
@@ -169,37 +170,55 @@ def limb(img, pts, r, c, with_paw=True):
         paw(img, pts[-1][0], pts[-1][1])
 
 
-def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0):
+def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False, bark=False):
     """front / hind: [(near leg points), (far leg points)] as lists of (x, y) design units; ignored when lying."""
     img = new()
-    by = (12.4 if not lying else 16.2) - bob        # rib-cage centre height, lifted by `bob` while trotting
-    dy = (0.0 if not lying else 6.2) - bob * 0.6    # how far the head is lowered
-    # tail: thin, hangs low from the rump and curls out, light tuft at the tip
-    line(img, (3.2, by - 0.4), (1.8, by + 2.2), 0.5, 'O')
-    line(img, (1.8, by + 2.2), (1.9 + wag, by + 4.0), 0.42, 'O')
-    ellipse(img, 1.9 + wag, by + 4.2, 0.55, 0.85, 'W')
-    # far legs first, then the body, then near legs
-    if not lying:
-        limb(img, front[1], 0.62, 'D')
-        limb(img, hind[1], 0.62, 'D')
-    # body: deep chest, ribs, roached loin (the highest point of the back), rump sloping down, belly tucked up
-    ellipse(img, 14.0, by + 0.3, 2.8, 2.6, 'O')
-    ellipse(img, 10.6, by, 5.0, 2.5, 'O')
-    ellipse(img, 7.8, by - 1.3, 3.0, 1.8, 'O')
-    ellipse(img, 4.9, by + 0.1, 2.4, 1.9, 'O')
-    # shading: dark underneath, lit along the back, deep shadow in the tuck-up
-    ellipse(img, 10.4, by + 2.0, 5.6, 1.5, 'D', clip=lambda k: k == 'O')
-    ellipse(img, 5.6, by + 1.4, 2.4, 1.1, 'D', clip=lambda k: k == 'O')
-    ellipse(img, 8.2, by + 2.0, 1.6, 0.45, 'S', clip=lambda k: k == 'D')
-    ellipse(img, 7.9, by - 2.4, 3.4, 0.7, 'L', clip=lambda k: k == 'O')
-    if not lying:
-        limb(img, front[0], 0.68, 'O')
-        limb(img, hind[0], 0.68, 'O')
+    if sit:
+        # sitting: haunch on the ground, torso rising to a raised chest, front legs straight, head a little higher
+        by = 11.4
+        dy = -0.8
+        # tail curls up behind him; `wag` swings its tip
+        line(img, (4.4, 16.4), (2.4, 17.4), 0.5, 'O')
+        line(img, (2.4, 17.4), (1.2 + wag, 15.2), 0.42, 'O')
+        ellipse(img, 1.2 + wag, 14.9, 0.55, 0.85, 'W')
+        limb(img, [(12.0, 12.6), (12.1, 15.8), (12.2, G)], 0.62, 'D')                     # far front leg
+        ellipse(img, 6.6, 16.0, 3.2, 2.9, 'O')                                             # haunch on the ground
+        ellipse(img, 9.6, 13.4, 3.6, 2.7, 'O', tilt=-0.7)                                  # torso rising to the chest
+        ellipse(img, 12.6, 12.0, 2.5, 2.8, 'O')                                            # deep chest
+        ellipse(img, 6.8, 17.5, 3.0, 1.1, 'D', clip=lambda k: k == 'O')                    # shade under the haunch
+        ellipse(img, 8.4, 11.9, 3.0, 0.6, 'L', tilt=-0.7, clip=lambda k: k == 'O')         # light along the back
+        ellipse(img, 7.4, 15.4, 1.6, 1.0, 'L', clip=lambda k: k == 'O')                    # the round of the thigh
+        paw(img, 8.6, G - 0.1)                                                             # hind paw tucked forward
+        limb(img, [(13.0, 12.6), (13.2, 15.8), (13.4, G)], 0.68, 'O')                     # near front leg
+    else:
+        by = (12.4 if not lying else 16.2) - bob        # rib-cage centre height, lifted by `bob` while trotting
+        dy = (0.0 if not lying else 6.2) - bob * 0.6    # how far the head is lowered
+        # tail: thin, hangs low from the rump and curls out, light tuft at the tip
+        line(img, (3.2, by - 0.4), (1.8, by + 2.2), 0.5, 'O')
+        line(img, (1.8, by + 2.2), (1.9 + wag, by + 4.0), 0.42, 'O')
+        ellipse(img, 1.9 + wag, by + 4.2, 0.55, 0.85, 'W')
+        # far legs first, then the body, then near legs
+        if not lying:
+            limb(img, front[1], 0.62, 'D')
+            limb(img, hind[1], 0.62, 'D')
+        # body: deep chest, ribs, roached loin (the highest point of the back), rump sloping down, belly tucked up
+        ellipse(img, 14.0, by + 0.3, 2.8, 2.6, 'O')
+        ellipse(img, 10.6, by, 5.0, 2.5, 'O')
+        ellipse(img, 7.8, by - 1.3, 3.0, 1.8, 'O')
+        ellipse(img, 4.9, by + 0.1, 2.4, 1.9, 'O')
+        # shading: dark underneath, lit along the back, deep shadow in the tuck-up
+        ellipse(img, 10.4, by + 2.0, 5.6, 1.5, 'D', clip=lambda k: k == 'O')
+        ellipse(img, 5.6, by + 1.4, 2.4, 1.1, 'D', clip=lambda k: k == 'O')
+        ellipse(img, 8.2, by + 2.0, 1.6, 0.45, 'S', clip=lambda k: k == 'D')
+        ellipse(img, 7.9, by - 2.4, 3.4, 0.7, 'L', clip=lambda k: k == 'O')
+        if not lying:
+            limb(img, front[0], 0.68, 'O')
+            limb(img, hind[0], 0.68, 'O')
     # long arched neck rising forward from the shoulders, fluffy ruff at the front of the chest
     ellipse(img, 14.4, by - 2.8, 1.9, 3.2, 'O', tilt=-0.62)
     ellipse(img, 15.4, by - 0.6, 1.1, 2.0, 'm', tilt=-0.25, clip=lambda k: k in BODY)
     ellipse(img, 13.4, by - 3.6, 0.9, 1.9, 'L', tilt=-0.62, clip=lambda k: k in BODY)
-    curls(img, 2.0, 16.6, by - 6.4, by + 3.4)
+    curls(img, 2.0, 16.6, by - 6.4, by + (6.6 if sit else 3.4))
     # head, dy lowered when asleep. One egg shape tilted toward the nose, so the profile from the crown to the nose
     # is a single smooth, slightly rounded slope: no step at the forehead.
     ellipse(img, 18.6, 4.4 + dy, 6.0, 3.3, 'W', tilt=0.3)               # skull and muzzle as one egg
@@ -221,9 +240,15 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0):
     # big dark nose at the very tip, with a shine
     ellipse(img, 23.75, 5.5 + dy, 0.95, 0.8, 'N', tilt=0.2)
     put(img, sub(23.5), sub(5.2 + dy), 'h')
-    # mouth line along the lower muzzle
-    for i in range(7):
-        put(img, sub(22.6 - i * 0.36), sub(6.5 + dy + i * 0.07), 'S')
+    if bark:
+        # open mouth: dark inside, the lower jaw dropped a little, the tip of the tongue
+        polygon(img, [(20.4, 6.3 + dy), (23.5, 5.9 + dy), (23.3, 7.7 + dy), (20.8, 7.3 + dy)], 'M')
+        ellipse(img, 21.6, 6.9 + dy, 0.8, 0.35, 'T', tilt=0.2)
+        ellipse(img, 21.4, 8.1 + dy, 2.1, 0.6, 'W', tilt=0.22)
+    else:
+        # mouth line along the lower muzzle
+        for i in range(7):
+            put(img, sub(22.6 - i * 0.36), sub(6.5 + dy + i * 0.07), 'S')
     # long ear close to the head: wide at the base, tapering and slanting back to a ragged light tassel
     polygon(img, [(15.6, 2.8 + dy), (17.3, 3.1 + dy), (17.4, 5.2 + dy), (16.6, 7.4 + dy), (15.4, 9.0 + dy),
                   (14.8, 7.0 + dy), (14.8, 4.4 + dy)], 'D')
@@ -280,6 +305,9 @@ for i in range(6):
     RUN.append(terrier(f, h, bob=bob, wag=wag))
 PANT = [terrier(STAND_F, STAND_H, tongue=True), terrier(STAND_F, STAND_H, tongue=True, wag=1.0)]
 SLEEP = [terrier(None, None, lying=True), terrier(None, None, lying=True, wag=1.0)]
+SIT = [terrier(None, None, sit=True), terrier(None, None, sit=True, wag=0.5)]
+WAG = [terrier(None, None, sit=True, wag=w) for w in (-0.9, 0.0, 0.9, 0.0)]
+BARK = [terrier(None, None, sit=True, bark=True), terrier(None, None, sit=True, bark=True, wag=0.6), terrier(None, None, sit=True)]
 
 palette, index = [], {}
 
@@ -304,7 +332,8 @@ def pack(frames, durations):
     return {'durations': durations, 'frames': [encode(f) for f in frames]}
 
 
-sets = {'run': pack(RUN, [80] * len(RUN)), 'pant': pack(PANT, [260, 260]), 'sleep': pack(SLEEP, [700, 700])}
+sets = {'run': pack(RUN, [80] * len(RUN)), 'pant': pack(PANT, [260, 260]), 'sleep': pack(SLEEP, [700, 700]),
+        'sit': pack(SIT, [900, 900]), 'wag': pack(WAG, [110] * 4), 'bark': pack(BARK, [170, 170, 260])}
 assert len(palette) <= len(ALPHABET), len(palette)
 json.dump({'alphabet': ALPHABET, 'palette': palette, 'width': CW, 'height': CH, 'subpixel': True, 'sets': sets},
           open('terrier-frames.json', 'w'), separators=(',', ':'))
@@ -313,7 +342,7 @@ print('coat', coat, '| k', K, '|', CW, 'x', CH, 'sub-pixels =', CW // 2, 'column
 if '--preview' in sys.argv:
     from PIL import Image
     Z = max(3, int(round(6 / K)))
-    frames = RUN + PANT[:1] + SLEEP[:1]
+    frames = SIT[:1] + WAG[:1] + BARK[:1] + RUN[:1] + PANT[:1] + SLEEP[:1]
     sheet = Image.new('RGB', (len(frames) * (CW * Z + 14), CH * Z), (24, 24, 30))
     for n, im in enumerate(frames):
         for y, row in enumerate(im):

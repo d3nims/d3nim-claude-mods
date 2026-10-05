@@ -36,30 +36,43 @@ test('the band draws three flames and three labels on the terminal', async ($, o
   await ui.unmount()
 })
 
+const WIDE = { ...(BAND as object), bodyColumns: 120 } as never
+
 test('the reset times show on /terry', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 120 } as never })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
   await $.command.run({ command: 'terry', args: '' } as never)
   await ui.redraw()
-  expect(await ui.find({ type: 'Text', text: /2시간 1[23]분 뒤 초기화/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /10\/9\(금\) 14시 초기화/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /2시간 1[23]분 뒤/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /10\/9\(금\) 14시/ })).toBeDefined()
   await ui.unmount()
 })
 
-test('/terry shows the terrier and /flame1 brings the flames back', async ($, on) => {
+test('/terry shows Terry sitting with the turn card, and /flame1 brings the flames back', async ($, on) => {
   engine(on, 55)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
   await $.command.run({ command: 'terry', args: '' } as never)
   await ui.redraw()
-  expect(await ui.find({ type: 'Raster', key: 'dog' })).toBeDefined()
+  expect(await ui.find({ type: 'Raster', key: 'terry' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /앉아서 기다리는 중/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /아직 요청이 없어요/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Opus 5\.5$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /주간 71%/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /대화 12%/ })).toBeDefined()
   await $.command.run({ command: 'flame1', args: '' } as never)
   await ui.redraw()
   expect(await ui.find({ type: 'Raster', key: 'band' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('Terry runs while Claude is working', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(WIDE as object), isWorking: true } as never })
+  expect(await ui.find({ type: 'Text', text: /달리는 중/ })).toBeDefined()
   await ui.unmount()
 })
 
