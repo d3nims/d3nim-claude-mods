@@ -159,8 +159,8 @@ def outline(img):
 
 def paw(img, x, y, far=False):
     # the far paws are shaded, so the near and far legs read apart
-    ellipse(img, x + 0.5, y + 0.15, 1.4, 0.8, 'm' if far else 'W')
-    ellipse(img, x + 0.4, y + 0.55, 1.4, 0.35, 'D' if far else 'm')
+    ellipse(img, x + 0.5, y + 0.15, 1.3 if far else 1.4, 0.8, 'm' if far else 'W')
+    ellipse(img, x + 0.4, y + 0.55, 1.3 if far else 1.4, 0.35, 'S' if far else 'm')
     for dx in (-0.35, 0.45):                       # toes
         put(img, sub(x + dx), sub(y + 0.45), 'S')
 
@@ -209,8 +209,8 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
             ellipse(img, 1.9 + wag, by + 4.2, 0.55, 0.85, 'W')
         # far legs first, then the body, then near legs
         if not lying:
-            limb(img, front[1], 0.62, 'S', far=True)
-            limb(img, hind[1], 0.62, 'S', far=True)
+            limb(img, front[1], 0.62, 'D', far=True)
+            limb(img, hind[1], 0.62, 'D', far=True)
         # body: deep chest, ribs, roached loin (the highest point of the back), rump sloping down, belly tucked up
         ellipse(img, 14.0 + st, by + 0.3, 2.8, 2.6, 'O')
         ellipse(img, 10.6, by, 5.0 + st * 0.8, 2.5 - max(0.0, st) * 0.25, 'O')
@@ -381,18 +381,19 @@ for i in range(6):
 #   3 stretched flat out in the air
 #   4 front feet land, hind legs swing forward
 DASH_KEYS = [
+    # far legs sit a beat behind the near ones and at least a cell apart, so each gets a terminal cell of its own
     dict(st=-0.6, bob=0.7, hx=1.0, wag=0.5,
-         fn=((13.0, 16.0), (11.6, 17.4)), ff=((12.0, 16.2), (10.4, 17.8)),
-         hn=((8.0, 15.8), (10.2, 17.2)), hf=((7.4, 16.0), (9.2, 17.8))),
+         fn=((13.2, 16.0), (12.0, 17.3)), ff=((11.6, 16.3), (9.6, 17.9)),
+         hn=((8.2, 15.8), (10.4, 17.1)), hf=((6.6, 16.2), (7.4, 18.0))),
     dict(st=0.2, bob=0.2, hx=1.6, wag=0.0,
-         fn=((15.8, 15.6), (17.8, 17.4)), ff=((14.8, 16.2), (16.2, 18.4)),
-         hn=((3.6, 16.2), (2.4, G)), hf=((4.4, 16.4), (3.6, G))),
+         fn=((16.0, 15.6), (18.0, 17.3)), ff=((14.2, 16.4), (15.2, G - 0.1)),
+         hn=((3.4, 16.2), (2.0, G)), hf=((5.0, 16.4), (4.6, G))),
     dict(st=1.0, bob=0.5, hx=2.0, wag=-1.0,
-         fn=((17.0, 15.4), (19.4, 17.0)), ff=((16.0, 15.8), (18.0, 17.6)),
-         hn=((2.2, 15.6), (-0.2, 17.0)), hf=((3.0, 15.8), (0.8, 17.6))),
+         fn=((17.2, 15.4), (19.6, 16.9)), ff=((15.4, 16.0), (16.8, 18.0)),
+         hn=((2.0, 15.6), (-0.4, 16.9)), hf=((3.6, 16.0), (2.0, 17.9))),
     dict(st=0.4, bob=0.0, hx=1.6, wag=0.0,
-         fn=((15.6, 16.2), (16.4, G)), ff=((14.6, 16.4), (14.8, G)),
-         hn=((5.2, 16.0), (6.0, 17.6)), hf=((4.6, 16.2), (5.0, 18.0))),
+         fn=((15.8, 16.2), (16.8, G)), ff=((14.0, 16.4), (14.0, G)),
+         hn=((5.4, 16.0), (6.4, 17.5)), hf=((4.0, 16.4), (3.8, 18.2))),
 ]
 
 
