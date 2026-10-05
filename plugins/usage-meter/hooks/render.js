@@ -426,7 +426,7 @@ export function terryCells(mood, ms, mode, hour = 12) {
   }
 
   // the ground: a grassy edge on earth with a few pebbles; it slides past while he runs
-  const off = mood === 'run' ? Math.floor(t * 18) : 0
+  const off = mood === 'run' ? Math.floor(t * 34) : 0 // the ground rushes by while he gallops
   for (let x = 0; x < TW; x++) {
     const wx = x + off
     for (let k = 1; k <= SOIL_ROWS; k++) {

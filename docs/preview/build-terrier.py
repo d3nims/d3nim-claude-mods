@@ -173,7 +173,7 @@ def limb(img, pts, r, c, with_paw=True):
         paw(img, pts[-1][0], pts[-1][1])
 
 
-def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False, bark=False):
+def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False, bark=False, dash=False):
     """front / hind: [(near leg points), (far leg points)] as lists of (x, y) design units; ignored when lying."""
     img = new()
     if sit:
@@ -197,9 +197,15 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
         by = (12.4 if not lying else 16.2) - bob        # rib-cage centre height, lifted by `bob` while trotting
         dy = (0.0 if not lying else 6.2) - bob * 0.6    # how far the head is lowered
         # tail: thin, hangs low from the rump and curls out, light tuft at the tip
-        line(img, (3.2, by - 0.4), (1.8, by + 2.2), 0.5, 'O')
-        line(img, (1.8, by + 2.2), (1.9 + wag, by + 4.0), 0.42, 'O')
-        ellipse(img, 1.9 + wag, by + 4.2, 0.55, 0.85, 'W')
+        if dash:
+            # running flat out: the tail streams out behind
+            line(img, (3.4, by - 0.6), (1.4, by - 0.4 + wag * 0.3), 0.5, 'O')
+            line(img, (1.4, by - 0.4 + wag * 0.3), (-0.2, by - 1.0 + wag * 0.6), 0.42, 'O')
+            ellipse(img, -0.2, by - 1.1 + wag * 0.6, 0.8, 0.5, 'W')
+        else:
+            line(img, (3.2, by - 0.4), (1.8, by + 2.2), 0.5, 'O')
+            line(img, (1.8, by + 2.2), (1.9 + wag, by + 4.0), 0.42, 'O')
+            ellipse(img, 1.9 + wag, by + 4.2, 0.55, 0.85, 'W')
         # far legs first, then the body, then near legs
         if not lying:
             limb(img, front[1], 0.62, 'D')
@@ -306,6 +312,27 @@ RUN = []
 for i in range(6):
     f, h, bob, wag = trot(i / 6)
     RUN.append(terrier(f, h, bob=bob, wag=wag))
+
+
+def gallop_frame(front_near, front_far, hind_near, hind_far, bob, wag):
+    hf, hh = HF - bob, HH - bob
+    pts = lambda hip, y, knee, paw: [(hip, y), knee, paw]
+    return terrier([pts(13.4, hf, *front_near), pts(12.2, hf, *front_far)],
+                   [pts(5.6, hh, *hind_near), pts(6.4, hh, *hind_far)], bob=bob, wag=wag, dash=True)
+
+
+# A gallop in four beats: stretched out (front legs reaching, hind legs pushed back), front feet land, gathered
+# (all four legs under him and the body in the air), hind feet push off.
+GALLOP = [
+    gallop_frame(((15.9, 15.6), (17.8, 17.6)), ((14.6, 16.0), (16.4, G - 0.5)),
+                 ((3.0, 15.4), (0.9, 17.4)), ((4.0, 15.9), (2.0, G - 0.4)), 0.15, -1.0),
+    gallop_frame(((14.6, 16.0), (14.8, G - 0.7)), ((13.4, 16.4), (13.4, G)),
+                 ((4.6, 16.2), (4.6, G - 1.3)), ((5.6, 16.2), (6.2, G - 1.0)), 0.0, 0.0),
+    gallop_frame(((13.9, 15.8), (12.6, 17.0)), ((12.2, 15.8), (11.0, 16.8)),
+                 ((7.4, 15.8), (9.0, 17.2)), ((8.0, 15.9), (9.6, 17.5)), 1.0, 1.0),
+    gallop_frame(((14.9, 15.7), (15.8, 17.5)), ((13.6, 16.0), (14.2, G - 0.8)),
+                 ((6.6, 16.4), (7.6, G)), ((7.2, 16.4), (8.4, G)), 0.45, 0.0),
+]
 PANT = [terrier(STAND_F, STAND_H, tongue=True), terrier(STAND_F, STAND_H, tongue=True, wag=1.0)]
 SLEEP = [terrier(None, None, lying=True), terrier(None, None, lying=True, wag=1.0)]
 SIT = [terrier(None, None, sit=True), terrier(None, None, sit=True, wag=0.5)]
@@ -335,7 +362,7 @@ def pack(frames, durations):
     return {'durations': durations, 'frames': [encode(f) for f in frames]}
 
 
-sets = {'run': pack(RUN, [80] * len(RUN)), 'pant': pack(PANT, [260, 260]), 'sleep': pack(SLEEP, [700, 700]),
+sets = {'walk': pack(RUN, [80] * len(RUN)), 'run': pack(GALLOP, [75] * len(GALLOP)), 'pant': pack(PANT, [260, 260]), 'sleep': pack(SLEEP, [700, 700]),
         'sit': pack(SIT, [900, 900]), 'wag': pack(WAG, [110] * 4), 'bark': pack(BARK, [170, 170, 260])}
 assert len(palette) <= len(ALPHABET), len(palette)
 json.dump({'alphabet': ALPHABET, 'palette': palette, 'width': CW, 'height': CH, 'subpixel': True, 'sets': sets},
@@ -345,7 +372,7 @@ print('coat', coat, '| k', K, '|', CW, 'x', CH, 'sub-pixels =', CW // 2, 'column
 if '--preview' in sys.argv:
     from PIL import Image
     Z = max(3, int(round(6 / K)))
-    frames = SIT[:1] + WAG[:1] + BARK[:1] + RUN[:1] + PANT[:1] + SLEEP[:1]
+    frames = GALLOP
     sheet = Image.new('RGB', (len(frames) * (CW * Z + 14), CH * Z), (24, 24, 30))
     for n, im in enumerate(frames):
         for y, row in enumerate(im):
