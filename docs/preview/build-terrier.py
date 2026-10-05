@@ -157,20 +157,21 @@ def outline(img):
     return out
 
 
-def paw(img, x, y):
-    ellipse(img, x + 0.5, y + 0.15, 1.4, 0.8, 'W')
-    ellipse(img, x + 0.4, y + 0.55, 1.4, 0.35, 'm')
+def paw(img, x, y, far=False):
+    # the far paws are shaded, so the near and far legs read apart
+    ellipse(img, x + 0.5, y + 0.15, 1.4, 0.8, 'm' if far else 'W')
+    ellipse(img, x + 0.4, y + 0.55, 1.4, 0.35, 'D' if far else 'm')
     for dx in (-0.35, 0.45):                       # toes
         put(img, sub(x + dx), sub(y + 0.45), 'S')
 
 
-def limb(img, pts, r, c, with_paw=True):
+def limb(img, pts, r, c, with_paw=True, far=False):
     for a, b in zip(pts, pts[1:]):
         line(img, a, b, r, c)
     mid = pts[len(pts) // 2]
     ellipse(img, mid[0] + 0.1, mid[1], r + 0.35, 0.8, 'L' if c == 'O' else c, clip=lambda k: k in 'OD')
     if with_paw:
-        paw(img, pts[-1][0], pts[-1][1])
+        paw(img, pts[-1][0], pts[-1][1], far)
 
 
 def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False, bark=False, dash=False):
@@ -184,7 +185,7 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
         line(img, (4.4, 16.4), (2.4, 17.4), 0.5, 'O')
         line(img, (2.4, 17.4), (1.2 + wag, 15.2), 0.42, 'O')
         ellipse(img, 1.2 + wag, 14.9, 0.55, 0.85, 'W')
-        limb(img, [(12.0, 12.6), (12.1, 15.8), (12.2, G)], 0.62, 'D')                     # far front leg
+        limb(img, [(12.0, 12.6), (12.1, 15.8), (12.2, G)], 0.62, 'S', far=True)                     # far front leg
         ellipse(img, 6.6, 16.0, 3.2, 2.9, 'O')                                             # haunch on the ground
         ellipse(img, 9.6, 13.4, 3.6, 2.7, 'O', tilt=-0.7)                                  # torso rising to the chest
         ellipse(img, 12.6, 12.0, 2.5, 2.8, 'O')                                            # deep chest
@@ -208,8 +209,8 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
             ellipse(img, 1.9 + wag, by + 4.2, 0.55, 0.85, 'W')
         # far legs first, then the body, then near legs
         if not lying:
-            limb(img, front[1], 0.62, 'D')
-            limb(img, hind[1], 0.62, 'D')
+            limb(img, front[1], 0.62, 'S', far=True)
+            limb(img, hind[1], 0.62, 'S', far=True)
         # body: deep chest, ribs, roached loin (the highest point of the back), rump sloping down, belly tucked up
         ellipse(img, 14.0, by + 0.3, 2.8, 2.6, 'O')
         ellipse(img, 10.6, by, 5.0, 2.5, 'O')
@@ -280,7 +281,7 @@ STAND_F = [[(13.4, HF), (13.6, 16.6), (13.8, G)], [(12.2, HF), (12.2, 16.6), (12
 STAND_H = [[(5.6, HH), (3.8, 16.6), (4.4, G)], [(6.4, HH), (6.6, 16.6), (6.8, G)]]
 
 
-def foot(hip_x, phase, stride=2.3, lift=1.9):
+def foot(hip_x, phase, stride=2.3, lift=1.9):  # stride/lift are widened for the running trot below
     """One foot over a step cycle. First half: planted, the body carries the hip over it (the foot slides back).
     Second half: lifted and swung forward, high in the middle."""
     p = phase % 1.0
@@ -321,18 +322,63 @@ def gallop_frame(front_near, front_far, hind_near, hind_far, bob, wag):
                    [pts(5.6, hh, *hind_near), pts(6.4, hh, *hind_far)], bob=bob, wag=wag, dash=True)
 
 
-# A gallop in four beats: stretched out (front legs reaching, hind legs pushed back), front feet land, gathered
-# (all four legs under him and the body in the air), hind feet push off.
-GALLOP = [
-    gallop_frame(((15.9, 15.6), (17.8, 17.6)), ((14.6, 16.0), (16.4, G - 0.5)),
-                 ((3.0, 15.4), (0.9, 17.4)), ((4.0, 15.9), (2.0, G - 0.4)), 0.15, -1.0),
-    gallop_frame(((14.6, 16.0), (14.8, G - 0.7)), ((13.4, 16.4), (13.4, G)),
-                 ((4.6, 16.2), (4.6, G - 1.3)), ((5.6, 16.2), (6.2, G - 1.0)), 0.0, 0.0),
-    gallop_frame(((13.9, 15.8), (12.6, 17.0)), ((12.2, 15.8), (11.0, 16.8)),
-                 ((7.4, 15.8), (9.0, 17.2)), ((8.0, 15.9), (9.6, 17.5)), 1.0, 1.0),
-    gallop_frame(((14.9, 15.7), (15.8, 17.5)), ((13.6, 16.0), (14.2, G - 0.8)),
-                 ((6.6, 16.4), (7.6, G)), ((7.2, 16.4), (8.4, G)), 0.45, 0.0),
+# A gallop: four key poses, the far legs a beat behind the near ones so all four legs show, and in-between frames
+# so it flows. Each leg is (knee, paw) in design units; the far legs are drawn darker, behind the body.
+#   1 stretched out: front legs reaching, hind legs pushed back
+#   2 front feet land, the far one first; hind legs swing forward
+#   3 gathered: all four legs under him, body in the air
+#   4 hind feet push off, the far one first; front legs reach out again
+GALLOP_KEYS = [
+    dict(fn=((16.0, 15.6), (17.9, 17.3)), ff=((14.6, 16.4), (15.4, G - 0.2)),
+         hn=((3.0, 15.4), (0.9, 17.3)), hf=((4.6, 16.2), (2.8, G - 0.2)), bob=0.2, wag=-1.0),
+    dict(fn=((15.2, 16.0), (16.0, G - 0.5)), ff=((13.6, 16.4), (13.4, G)),
+         hn=((5.0, 16.0), (5.4, G - 1.4)), hf=((3.8, 16.2), (3.4, G - 0.7)), bob=0.0, wag=0.0),
+    dict(fn=((14.0, 15.8), (12.8, 17.0)), ff=((12.6, 16.0), (11.0, 17.6)),
+         hn=((7.6, 15.8), (9.4, 17.1)), hf=((6.8, 16.0), (8.0, 17.8)), bob=1.0, wag=1.0),
+    dict(fn=((15.0, 15.7), (16.0, 17.4)), ff=((13.4, 16.2), (14.0, G - 0.6)),
+         hn=((7.0, 16.4), (8.2, G)), hf=((5.6, 16.4), (6.4, G)), bob=0.45, wag=0.0),
 ]
+
+
+def _mix(a, b, t):
+    if isinstance(a, (int, float)):
+        return a + (b - a) * t
+    return tuple(_mix(x, y, t) for x, y in zip(a, b))
+
+
+def gallop_frame(k):
+    hf_, hh_ = HF - k['bob'], HH - k['bob']
+    leg_ = lambda hip, y, kp: [(hip, y), kp[0], kp[1]]
+    return terrier([leg_(13.4, hf_, k['fn']), leg_(12.2, hf_, k['ff'])],
+                   [leg_(5.6, hh_, k['hn']), leg_(6.4, hh_, k['hf'])], bob=k['bob'], wag=k['wag'], dash=True)
+
+
+def run_leg(hip_x, hip_y, phase, hind, stride=3.1, lift=2.6):
+    p = phase % 1.0
+    if p < 0.5:
+        fx, fy = hip_x + stride * (1 - 4 * p), G
+    else:
+        t = (p - 0.5) * 2
+        fx, fy = hip_x - stride + 2 * stride * t, G - lift * math.sin(math.pi * t)
+    mx, my = (hip_x + fx) / 2 + (-1.1 if hind else -0.3), (hip_y + fy) / 2 - (0.7 if fy < G - 0.2 else 0)
+    return [(hip_x, hip_y), (mx, my), (fx, fy)]
+
+
+RUN_FAST = []
+for i in range(6):
+    ph = i / 6
+    bob = 0.8 * abs(math.sin(2 * math.pi * ph))
+    hf_, hh_ = HF - bob, HH - bob
+    front = [run_leg(13.6, hf_, ph, False), run_leg(12.4, hf_, ph + 0.5, False)]
+    hind = [run_leg(5.8, hh_, ph + 0.5, True), run_leg(6.6, hh_, ph, True)]
+    RUN_FAST.append(terrier(front, hind, bob=bob, wag=math.sin(2 * math.pi * ph * 2), dash=True))
+
+GALLOP = []
+for i in range(8):
+    a_, b_ = GALLOP_KEYS[i // 2], GALLOP_KEYS[(i // 2 + 1) % 4]
+    t_ = (i % 2) * 0.5
+    GALLOP.append(gallop_frame({key: _mix(a_[key], b_[key], t_) for key in a_}))
+
 PANT = [terrier(STAND_F, STAND_H, tongue=True), terrier(STAND_F, STAND_H, tongue=True, wag=1.0)]
 SLEEP = [terrier(None, None, lying=True), terrier(None, None, lying=True, wag=1.0)]
 SIT = [terrier(None, None, sit=True), terrier(None, None, sit=True, wag=0.5)]
@@ -362,7 +408,7 @@ def pack(frames, durations):
     return {'durations': durations, 'frames': [encode(f) for f in frames]}
 
 
-sets = {'walk': pack(RUN, [80] * len(RUN)), 'run': pack(GALLOP, [75] * len(GALLOP)), 'pant': pack(PANT, [260, 260]), 'sleep': pack(SLEEP, [700, 700]),
+sets = {'walk': pack(RUN, [80] * len(RUN)), 'run': pack(RUN_FAST, [55] * len(RUN_FAST)), 'gallop': pack(GALLOP, [55] * len(GALLOP)), 'pant': pack(PANT, [260, 260]), 'sleep': pack(SLEEP, [700, 700]),
         'sit': pack(SIT, [900, 900]), 'wag': pack(WAG, [110] * 4), 'bark': pack(BARK, [170, 170, 260])}
 assert len(palette) <= len(ALPHABET), len(palette)
 json.dump({'alphabet': ALPHABET, 'palette': palette, 'width': CW, 'height': CH, 'subpixel': True, 'sets': sets},
@@ -372,7 +418,7 @@ print('coat', coat, '| k', K, '|', CW, 'x', CH, 'sub-pixels =', CW // 2, 'column
 if '--preview' in sys.argv:
     from PIL import Image
     Z = max(3, int(round(6 / K)))
-    frames = GALLOP
+    frames = RUN_FAST
     sheet = Image.new('RGB', (len(frames) * (CW * Z + 14), CH * Z), (24, 24, 30))
     for n, im in enumerate(frames):
         for y, row in enumerate(im):
