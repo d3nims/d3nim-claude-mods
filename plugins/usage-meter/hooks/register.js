@@ -197,6 +197,11 @@ export function register(on) {
     await refresh($)
     $.clock.every(30000, () => refresh($))
     await $.ui.toast(guide(), { timeoutMs: 12000 })
+    // 터미널이 트루컬러를 알리지 않으면 Claude Code 가 256색으로 줄여 그린다 (테리가 청록색, 흙길이 회색으로 보임)
+    const colorterm = ((await $.env.get('COLORTERM')) || '').toLowerCase()
+    if (colorterm !== 'truecolor' && colorterm !== '24bit') {
+      await $.ui.toast('usage-meter: 색이 이상하게 보이면 셸 설정에 export COLORTERM=truecolor 를 넣고 Claude Code 를 다시 시작하세요 (지금은 256색으로 그려져요)', { timeoutMs: 12000 })
+    }
     return next(e)
   })
 
@@ -289,11 +294,11 @@ export function register(on) {
             flexDirection: 'row',
             children: [
               Text({ key: 'dl0', color: stateColor(pct), bold: true, children: ['5시간 ' + show(vals[0])] }),
-              Text({ key: 'dl0h', dimColor: true, children: [' 달린 거리   '] }),
+              Text({ key: 'dl0h', dimColor: true, children: [' 테리가 달린 만큼    '] }),
               Text({ key: 'dl1', color: stateColor(vals[1] ?? 0), bold: true, children: ['주간 ' + show(vals[1])] }),
-              Text({ key: 'dl1h', dimColor: true, children: [(vals[1] ?? 0) >= 100 ? ' 달   ' : (vals[1] ?? 0) >= 80 ? ' 노을   ' : ' 해   '] }),
+              Text({ key: 'dl1h', dimColor: true, children: [(vals[1] ?? 0) >= 100 ? ' 해가 지고 달이 떴어요    ' : (vals[1] ?? 0) >= 80 ? ' 노을이 졌어요    ' : ' 해가 지나간 만큼    '] }),
               Text({ key: 'dl2', color: stateColor(vals[2] ?? 0), bold: true, children: ['대화 ' + show(vals[2])] }),
-              Text({ key: 'dl2h', dimColor: true, children: [' 뼈다귀 ' + bonesLeft(vals[2]) + '/5'] }),
+              Text({ key: 'dl2h', dimColor: true, children: [' 뼈다귀 ' + bonesLeft(vals[2]) + '개 남음'] }),
               ...(side ? [] : modelTexts(Text, 'dm-', '   ')),
             ],
           }),

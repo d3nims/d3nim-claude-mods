@@ -104,6 +104,7 @@ claude plugin update usage-meter@d3nim-claude-mods
 - 테스트 `hooks/usage-meter.test.ts` 3개 통과(`claude plugin test plugins/usage-meter`), `claude plugin validate` 통과.
 
 ### 그림 방식 메모
+- **색이 이상하면(테리가 청록·연보라, 흙길이 회색) `COLORTERM`부터 확인.** 비어 있으면 Claude Code가 터미널을 256색으로 보고 색을 256색 표의 가까운 색으로 바꿔 그린다. WaveTerm은 트루컬러를 지원하지만 알리지 않으므로 `~/.bashrc`에 `export COLORTERM=truecolor`를 넣었다(2026-10-05). Claude Code를 **다시 시작**해야 적용(`/reload-plugins`로는 안 됨). mod도 불러올 때 이 값이 없으면 안내 알림을 띄운다(0.4.1).
 - 한 터미널 칸을 가로 2 x 세로 4 서브픽셀로 쪼개 그리고, 칸당 색 2개로 줄여 사분블록(quad) 또는 점자(braille) 글자로 만든다. `Raster`가 이 글자들을 받는다.
 - **WaveTerm은 `Image` 요소(진짜 픽셀 그림)를 지원하지 않는다**(2026-10-05 실기 확인). kitty/Ghostty에서는 가능하다고 문서에 있음.
 - `Raster`는 색을 한 번에 1024가지 조합까지만 정확히 칠한다. 불꽃 그라데이션이 단순해질 수 있음.
