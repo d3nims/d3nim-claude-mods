@@ -18,6 +18,8 @@ const localHour = () => {
 
 let usage = null // $.session.usage() 의 마지막 결과
 let modelId = null // 지금 모델 (/model 이 보여주는 것)
+let lastStepEffort = '(아직 요청 없음)'
+let effortFrom = '없음' // 추론 강도를 어디서 읽었는지 (/terry debug)
 let effort = null // 추론 강도: 요청마다 turn.step 에서 읽는다. 첫 요청 전이거나 강도가 없는 모델이면 null
 let style = 'flame1' // 'flame1' (불꽃 밴드) | 'terry' (강아지)
 let mode = 'quad' // 'quad' (사분블록) | 'braille' (점자)
@@ -204,12 +206,16 @@ async function refresh($) {
   if (!effort) {
     try {
       effort = (await $.env.get('CLAUDE_EFFORT')) || null
+      if (effort) effortFrom = 'CLAUDE_EFFORT 환경 변수'
     } catch (err) {}
   }
   if (!effort) {
     try {
       const row = (await $.config.list()).find(r => /effort/i.test(r.key))
-      if (row && typeof row.value === 'string' && row.value) effort = row.value
+      if (row && typeof row.value === 'string' && row.value) {
+        effort = row.value
+        effortFrom = '설정 ' + row.key
+      }
     } catch (err) {}
   }
 
@@ -281,7 +287,7 @@ export function register(on) {
     await refresh($)
     $.clock.every(30000, () => refresh($))
     $.clock.every(1000, () => {
-      if (style === 'terry' && (working || mood() !== drawnMood)) $.ui.invalidate('ui.render')
+      if (style === 'terry') $.ui.invalidate('ui.render')
     })
     await $.ui.toast(guide(), { timeoutMs: 12000 })
     // 터미널이 트루컬러를 알리지 않으면 Claude Code 가 256색으로 줄여 그린다 (테리가 청록색, 흙길이 회색으로 보임)
@@ -301,9 +307,13 @@ export function register(on) {
   // turn.step 은 응답이 조각조각 흘러오는 이벤트라서 async function* 로 쓰고, 그대로 통과시킨다.
   on('turn.step', async function* ($, e, next) {
     const nextEffort = e.effort == null ? null : String(e.effort)
-    if (e.model !== modelId || nextEffort !== effort) {
+    lastStepEffort = e.effort == null ? '(없음)' : String(e.effort)
+    if (e.model !== modelId || (nextEffort && nextEffort !== effort)) {
       modelId = e.model
-      effort = nextEffort
+      if (nextEffort) {
+        effort = nextEffort
+        effortFrom = '요청(turn.step)'
+      }
       $.ui.invalidate('ui.render')
     }
     // 세기만 한다. 턴이 끝난 뒤의 모델 호출(다음 입력 제안 등)에서 달리기를 다시 켜면 안 된다.
@@ -371,6 +381,26 @@ export function register(on) {
     on('command.run', { command: name }, async ($, e) => {
       const arg = e.args.trim().toLowerCase()
       if (arg === 'help' || arg === '?') return { text: guide() }
+      if (arg === 'debug') {
+        let env = '(읽기 실패)'
+        try {
+          env = (await $.env.get('CLAUDE_EFFORT')) ?? '(없음)'
+        } catch (err) {}
+        let rows = '(읽기 실패)'
+        try {
+          rows = (await $.config.list()).filter(r => /effort|think|reason/i.test(r.key + ' ' + r.label)).map(r => r.key + '=' + JSON.stringify(r.value)).join(', ') || '(해당 항목 없음)'
+        } catch (err) {}
+        return {
+          text: [
+            'usage-meter 진단',
+            '모델: ' + (modelId ?? '(없음)') + ' / 추론: ' + (effort ?? '(없음)') + ' (출처: ' + effortFrom + ')',
+            '마지막 요청의 effort 값: ' + lastStepEffort,
+            'CLAUDE_EFFORT: ' + env,
+            '설정 항목: ' + rows,
+            '응답 중: ' + working + ' / 이번 요청 토큰: 입력 ' + turn.input + ' 출력 ' + turn.output + ' 추정 글자 ' + turn.liveChars,
+          ].join('\n'),
+        }
+      }
       if (arg === 'quad' || arg === 'braille') {
         mode = arg
         await $.store.set('mode', mode)
@@ -407,7 +437,7 @@ export function register(on) {
     if (style === 'terry') {
       // 화면이 알려 주는 '응답 중' 표시를 기준으로 맞춘다 (훅을 놓쳐도 달리기가 켜진 채로 남지 않게)
       if (e.props.isWorking === true && !working) startTurn()
-      if (e.props.isWorking === false && working) endTurn('answer')
+      if (e.props.isWorking === false && working && Date.now() - turn.start > 2500) endTurn('answer')
       const m = mood()
       drawnMood = m
       runAnim($, e.requestId, 'terry', TERRY_COLS, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour()))
@@ -436,16 +466,17 @@ export function register(on) {
           Text({ key: 'tc-tokens', dimColor: true, children: [t ? t.tokens : ' '] }),
         ],
       })
-      // 사용량: 카드 아래에 줄을 맞춘 작은 표 (이름 / 막대 / % / 초기화)
-      const MINI = 10
+      // 사용량: 오른쪽 아래에 줄을 맞춘 작은 표 (이름 / 막대 / % / 초기화). 폭이 모자라면 초기화 문구를 뺀다.
+      const MINI = 8
+      const sideRoom = cols - TERRY_COLS - 4
+      const withReset = sideRoom >= 34
       const usageTable = Box({
         key: 'terry-usage',
         flexDirection: 'column',
-        marginTop: 1,
         children: BAND_NAMES.map((nm, i) => {
           const v = vals[i] ?? 0
           const filled = v <= 0 ? 0 : Math.max(1, Math.round((Math.min(100, v) / 100) * MINI))
-          const reset = resetText(i)
+          const reset = withReset ? resetText(i) : null
           return Box({
             key: 'tu' + i,
             flexDirection: 'row',
@@ -460,11 +491,12 @@ export function register(on) {
         }),
       })
       const dog = Raster({ key: 'terry', columns: TERRY_COLS, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), mode, localHour()) })
-      const side = Box({ key: 'terry-side', flexDirection: 'column', children: [card, usageTable] })
-      if (cols >= TERRY_COLS + 44) {
-        return Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: 4, children: [side] })] })
+      // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
+      if (sideRoom >= 26) {
+        const side = Box({ key: 'terry-side', flexDirection: 'column', height: TERRY_ROWS, justifyContent: 'space-between', children: [card, usageTable] })
+        return Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: sideRoom >= 40 ? 4 : 2, children: [side] })] })
       }
-      return Box({ key: 'terry-col', flexDirection: 'column', children: [dog, side] })
+      return Box({ key: 'terry-col', flexDirection: 'column', children: [dog, card, usageTable] })
     }
 
     // /flame1 화면: 5시간 | 주간 | 대화, 칸마다 불꽃

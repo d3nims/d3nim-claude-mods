@@ -74,7 +74,8 @@ test('Terry runs while Claude is working', async ($, on) => {
   await $.command.run({ command: 'terry', args: '' } as never)
   const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(WIDE as object), isWorking: true } as never })
   expect(await ui.find({ type: 'Text', text: /달리는 중/ })).toBeDefined()
-  // the answer is in: he stops running
+  // the answer is in: he stops running (a run the band reports finished ends once it has lasted 2.5 s)
+  await new Promise(r => setTimeout(r, 2600))
   await ui.redraw({ ...(WIDE as object), isWorking: false } as never)
   expect(await ui.find({ type: 'Text', text: /달리는 중/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /다 했어요/ })).toBeDefined()
