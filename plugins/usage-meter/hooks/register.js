@@ -67,15 +67,44 @@ function modelTexts(Text, prefix, lead) {
   if (!name) return []
   const parts = [Text({ key: prefix + 'm', color: MODEL_COLOR, bold: true, children: [lead + name] })]
   if (effort) {
-    parts.push(Text({ key: prefix + 'sep', dimColor: true, children: [' · '] }))
+    parts.push(Text({ key: prefix + 'sep', dimColor: true, children: [' · 강도 '] }))
     parts.push(Text({ key: prefix + 'e', color: effortColor(effort), children: [effort] }))
   }
   return parts
 }
+// 모델 카드: 둥근 테두리 안에 두 줄 (모델 / 강도). 테두리까지 4줄이라 불꽃 밴드 높이와 같다.
+const CARD_BORDER = '#5a5f73'
+function modelCard(Box, Text, key) {
+  const name = prettyModel(modelId)
+  if (!name) return null
+  return Box({
+    key,
+    flexDirection: 'column',
+    borderStyle: 'round',
+    borderColor: CARD_BORDER,
+    paddingX: 1,
+    children: [
+      Text({ key: key + '-m', color: MODEL_COLOR, bold: true, children: [name] }),
+      Box({
+        key: key + '-e',
+        flexDirection: 'row',
+        children: [
+          Text({ key: key + '-ek', dimColor: true, children: ['강도 '] }),
+          Text({ key: key + '-ev', color: effort ? effortColor(effort) : undefined, dimColor: !effort, children: [effort ?? '--'] }),
+        ],
+      }),
+    ],
+  })
+}
+// 카드가 차지하는 폭 (테두리 2 + 안쪽 여백 2 + 글자)
+const cardWidth = () => {
+  const name = prettyModel(modelId)
+  return name ? Math.max(visible(name), visible('강도 ' + (effort ?? '--'))) + 4 : 0
+}
 const modelLine = () => {
   const name = prettyModel(modelId)
   if (!name) return null
-  return effort ? name + ' · ' + effort : name
+  return effort ? name + ' · 강도 ' + effort : name
 }
 
 // 한글은 두 칸을 차지한다
@@ -218,7 +247,7 @@ export function register(on) {
     if (style === 'terry') {
       // 모델과 추론 강도는 강아지 오른쪽 빈 곳에 세로로 둔다. 자리가 모자라면 아래 줄에 붙인다.
       const name = prettyModel(modelId)
-      const SIDE = 22
+      const SIDE = cardWidth() + 4
       const side = name != null && cols - 2 - SIDE >= DOG_COLS + 8
       const columns = Math.max(DOG_COLS + 8, Math.min(64, cols - 2 - (side ? SIDE : 0)))
       const pct = vals[0] ?? 0
@@ -238,10 +267,7 @@ export function register(on) {
                     flexDirection: 'column',
                     marginLeft: 3,
                     paddingTop: Math.max(0, Math.floor(DOG_ROWS / 2) - 2),
-                    children: [
-                      Text({ key: 'ds-model', color: MODEL_COLOR, bold: true, children: [name] }),
-                      Text({ key: 'ds-effort', color: effortColor(effort), children: [effort ?? ''] }),
-                    ],
+                    children: [modelCard(Box, Text, 'dog-card')],
                   }),
                 ],
               })
@@ -275,11 +301,11 @@ export function register(on) {
 
     // /flame1 화면: 5시간 | 주간 | 대화, 칸마다 불꽃
     // 모델 표기가 들어갈 자리를 먼저 남기고 밴드 폭을 정한다 (자리가 너무 좁아지면 모델 표기를 뺀다)
-    const ml = modelLine()
-    const reserve = ml ? visible(ml) + 2 : 0
+    // 모델 카드 자리를 먼저 남기고 밴드 폭을 정한다 (자리가 너무 좁아지면 카드를 뺀다)
+    const reserve = prettyModel(modelId) ? cardWidth() + 2 : 0
     const bandCols = cols - 2 - reserve >= 36 ? cols - 2 - reserve : cols - 2
     const band = bandFor(bandCols)
-    const showModel = ml != null && band.columns + 2 + reserve <= cols
+    const showModel = reserve > 0 && band.columns + 2 + reserve <= cols
     runAnim($, e.requestId, 'band', band.columns, band.rows, () => band.cells(values(), nowMs() / 1000))
     const labels = BAND_NAMES.map((name, i) => {
       const pct = vals[i] ?? 0
@@ -290,14 +316,15 @@ export function register(on) {
     return Box({
       flexDirection: 'column',
       children: [
-        Raster({ key: 'band', columns: band.columns, rows: band.rows, cells: band.cells(vals, nowMs() / 1000) }),
         Box({
+          key: 'band-row',
           flexDirection: 'row',
           children: [
-            ...labels,
-            ...(showModel ? modelTexts(Text, 'model-', '') : []),
+            Raster({ key: 'band', columns: band.columns, rows: band.rows, cells: band.cells(vals, nowMs() / 1000) }),
+            ...(showModel ? [Box({ key: 'band-side', marginLeft: 2, children: [modelCard(Box, Text, 'band-card')] })] : []),
           ],
         }),
+        Box({ key: 'labels', flexDirection: 'row', children: labels }),
       ],
     })
   })
