@@ -1,6 +1,6 @@
 {
   "name": "usage-meter",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "5시간/주간/대화 사용량을 프롬프트 위에 보여줍니다. /flame1 은 파란 불꽃 밴드, /terry 는 베들링턴 테리어가 달리는 화면. 80%/90%에서 알립니다",
   "author": {
     "name": "d3nim"

@@ -4,7 +4,7 @@
 // 뒤에 quad 또는 braille 을 붙이면 그림 방식을 바꿉니다 (예: /terry braille)
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
-import { BAND_GAP, BAND_NAMES, BONE_ROWS, DOG_COLS, DOG_ROWS, boneCells, dogCells, makeBand, stateColor } from './render.js'
+import { BAND_GAP, BAND_NAMES, DOG_COLS, DOG_ROWS, dogCells, makeBand, stateColor } from './render.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 66 // 약 15프레임
@@ -259,43 +259,56 @@ export function register(on) {
       })
     }
 
-    // /terry 화면: 테리가 불꽃 막대(5시간) 위를 달리고, 오른쪽에 모델 카드와 뼈다귀 두 개(주간, 대화).
-    // 뼈다귀는 쓴 만큼 왼쪽부터 차오르고, 가운데 몸통에 퍼센트가 적혀 있다. 5시간 숫자는 막대 끝에 적힌다.
+    // /terry 화면: 3층 땅. 테리가 서 있는 불꽃 막대 = 5시간, 그 아래 얇은 선 두 줄 = 주간, 대화.
+    // 세 층은 왼쪽 끝과 폭이 같아서 길이로 바로 비교된다. 숫자는 각 층의 오른쪽 끝에 붙는다.
     if (style === 'terry') {
-      const BONE_COLS = 13
-      const SIDE = Math.max(cardWidth(), BONE_COLS * 2 + 2) + 3
-      const side = cols - 2 - SIDE >= DOG_COLS + 8
-      const columns = Math.max(DOG_COLS + 8, Math.min(60, cols - 2 - (side ? SIDE : 0)))
+      const name = prettyModel(modelId)
+      const LABEL = 12 // 층 끝에 붙는 '대화 100% !' 자리
+      const SIDE = Math.max(cardWidth(), LABEL) + 3
+      const side = name != null && cols - 2 - SIDE >= DOG_COLS + 8
+      const columns = Math.max(DOG_COLS + 8, Math.min(60, cols - 2 - (side ? SIDE : LABEL + 1)))
       const pct = vals[0] ?? 0
       runAnim($, e.requestId, 'dog', columns, DOG_ROWS, () => dogCells(columns, values()[0] ?? 0, nowMs(), mode))
-      const bone = i =>
-        Box({
-          key: 'bone-box' + i,
-          flexDirection: 'column',
-          alignItems: 'center',
-          marginRight: i === 1 ? 2 : 0,
-          children: [
-            Raster({ key: 'bone' + i, columns: BONE_COLS, rows: BONE_ROWS, cells: boneCells(BONE_COLS, vals[i], mode) }),
-            Text({ key: 'bone-l' + i, color: stateColor(vals[i] ?? 0), bold: true, children: [BAND_NAMES[i]] }),
-          ],
-        })
-      const bones = Box({ key: 'bones', flexDirection: 'row', children: [bone(1), bone(2)] })
-      const card = modelCard(Box, Text, 'dog-card')
-      const dog = Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: dogCells(columns, pct, nowMs(), mode) })
-      if (side) {
+      const label = i => BAND_NAMES[i] + ' ' + show(vals[i]) + ((vals[i] ?? 0) >= 90 ? ' !' : '')
+      // 얇은 층 한 줄: 쓴 만큼 굵은 선, 나머지 가는 선, 끝에 이름과 숫자
+      const layer = i => {
+        const v = vals[i] ?? 0
+        const filled = v <= 0 ? 0 : Math.max(1, Math.round((Math.min(100, v) / 100) * columns))
         return Box({
-          key: 'dog-row',
+          key: 'layer' + i,
           flexDirection: 'row',
           children: [
-            dog,
-            Box({ key: 'dog-side', flexDirection: 'column', marginLeft: 2, children: [card ?? Text({ key: 'no-card', children: [''] }), bones] }),
+            Text({ key: 'lf' + i, color: stateColor(v), children: ['━'.repeat(filled)] }),
+            Text({ key: 'le' + i, dimColor: true, children: ['─'.repeat(columns - filled)] }),
+            Text({ key: 'll' + i, color: stateColor(v), bold: true, children: [' ' + label(i)] }),
           ],
         })
       }
-      // 좁은 화면: 뼈다귀는 테리 아래로, 모델은 한 줄 글자로
       return Box({
         flexDirection: 'column',
-        children: [dog, bones, Box({ key: 'dog-model', flexDirection: 'row', children: modelTexts(Text, 'dm-', '') })],
+        children: [
+          Box({
+            key: 'dog-row',
+            flexDirection: 'row',
+            children: [
+              Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: dogCells(columns, pct, nowMs(), mode) }),
+              // 오른쪽: 위에는 모델 카드, 맨 아래 줄(불꽃 막대 높이)에는 5시간 숫자
+              Box({
+                key: 'dog-side',
+                flexDirection: 'column',
+                height: DOG_ROWS,
+                justifyContent: 'space-between',
+                children: [
+                  side ? Box({ key: 'dog-card-wrap', marginLeft: 2, children: [modelCard(Box, Text, 'dog-card')] }) : Text({ key: 'dog-card-none', children: [''] }),
+                  Text({ key: 'l0', color: stateColor(pct), bold: true, children: [' ' + label(0)] }),
+                ],
+              }),
+            ],
+          }),
+          layer(1),
+          layer(2),
+          ...(side ? [] : [Box({ key: 'dog-model', flexDirection: 'row', children: modelTexts(Text, 'dm-', '') })]),
+        ],
       })
     }
 

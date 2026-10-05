@@ -71,11 +71,6 @@ function cellOf(units, mode) {
 
 /** canvas: rows*4 lines of cols*2 colours (or null). Returns the packed cells for a rows x cols Raster. */
 export function canvasToCells(canvas, cols, rows, mode) {
-  return packCells(canvasToCellList(canvas, cols, rows, mode))
-}
-
-/** As canvasToCells, but the [codePoint, fg, bg] list itself, so text can be written over some cells first. */
-function canvasToCellList(canvas, cols, rows, mode) {
   const cells = []
   for (let r = 0; r < rows; r++) {
     for (let cx = 0; cx < cols; cx++) {
@@ -97,19 +92,7 @@ function canvasToCellList(canvas, cols, rows, mode) {
       cells.push(cellOf(units, mode))
     }
   }
-  return cells
-}
-
-/** Writes ASCII `text` into a cell list (cols wide) at cell x, row y: each character keeps its cell's colour behind it. */
-function writeText(cells, cols, x, y, text, fg) {
-  for (let i = 0; i < text.length; i++) {
-    const cx = x + i
-    if (cx < 0 || cx >= cols) continue
-    const cell = cells[y * cols + cx]
-    // the colour behind the letter: the cell's background, or its foreground when it is a full block
-    const behind = cell[0] === 0x2588 ? cell[1] : cell[2]
-    cells[y * cols + cx] = [text.charCodeAt(i), fg, behind]
-  }
+  return packCells(cells)
 }
 
 // ---- Noise and colours ------------------------------------------------------------------------------
@@ -327,64 +310,5 @@ export function dogCells(columns, pct, ms, mode) {
       if (c && dogX + x >= 0 && dogX + x < TW) canvas[y][dogX + x] = c
     }
   }
-  // the 5-hour figure, written in the bar row just ahead of Terry (or at the left when he has reached the end)
-  const cells = canvasToCellList(canvas, columns, DOG_ROWS, mode)
-  const text = '5h ' + Math.round(Math.min(100, pct)) + '%'
-  let tx = Math.ceil((dogX + SW) / 2) + 1
-  let ink = pct >= 90 ? 0xff783c : pct >= 80 ? 0xffbe50 : 0x50aaff
-  if (tx + text.length > columns) { tx = 0; ink = 0xffffff }
-  writeText(cells, columns, tx, DOG_ROWS - 1, text, ink)
-  return packCells(cells)
-}
-
-// ---- Bone gauge: a bone that fills from the left, its percentage written in the shaft ------------------
-const BONE_ON = [242, 230, 198]
-const BONE_OFF = [72, 70, 82]
-const BONE_INK = 0x2c2018 // dark letters on the bone
-const BONE_INK_OFF = 0xd8d8e2 // light letters on the empty part
-export const BONE_ROWS = 5
-
-/**
- * A bone `cols` wide and 3 rows tall: two round knobs at each end and a thin shaft, the shaft exactly the middle row
- * so the percentage can sit in it. Filled (bone colour, amber from 80%, red from 90%) from the left up to `pct`.
- */
-export function boneCells(cols, pct, mode) {
-  const W = cols * 2
-  const H = BONE_ROWS * 4
-  const v = pct == null ? 0 : Math.max(0, Math.min(100, pct))
-  const on = v >= 90 ? [255, 128, 96] : v >= 80 ? [255, 200, 96] : BONE_ON
-  const fillX = (v / 100) * W // quarter-block x up to which the bone is filled
-  // Drawn on the quarter-block grid (2 across, 2 down per cell; a quarter is twice as tall as wide), with round
-  // knobs worked out in screen units so they stay round. Knobs take two rows above and below; the shaft is exactly
-  // the middle row of cells, thinner than the knobs, so the shape reads as a bone and the text fits in the shaft.
-  const canvas = Array.from({ length: H }, () => Array(W).fill(null))
-  const QW = W // quarter blocks across (one per sub-pixel column)
-  const QH = BONE_ROWS * 2 // quarter blocks down
-  const width = QW * 0.5 // in column widths
-  const R = 1.9
-  const CX = 1.9
-  const centres = [[CX, 2.3], [CX, QH - 2.3], [width - CX, 2.3], [width - CX, QH - 2.3]]
-  const shaftTop = 4 // quarter rows 4 and 5 = cell row 2
-  const inBone = (qx, qy) => {
-    const px = (qx + 0.5) * 0.5
-    const py = qy + 0.5
-    if (qy >= shaftTop && qy <= shaftTop + 1 && px >= CX && px <= width - CX) return true
-    return centres.some(([cx, cy]) => (px - cx) ** 2 + ((py - cy) * 0.5) ** 2 <= R * R * 0.55)
-  }
-  for (let qy = 0; qy < QH; qy++) {
-    for (let qx = 0; qx < QW; qx++) {
-      if (!inBone(qx, qy)) continue
-      const c = qx + 0.5 <= fillX && v > 0 ? on : BONE_OFF
-      canvas[qy * 2][qx] = c
-      canvas[qy * 2 + 1][qx] = c
-    }
-  }
-  const cells = canvasToCellList(canvas, cols, BONE_ROWS, mode === 'braille' ? 'quad' : mode)
-  const text = pct == null ? '--' : Math.round(v) + '%'
-  const tx = Math.floor((cols - text.length) / 2)
-  for (let i = 0; i < text.length; i++) {
-    const filledHere = (tx + i) * 2 + 1 <= fillX && v > 0
-    writeText(cells, cols, tx + i, 2, text[i], filledHere ? BONE_INK : BONE_INK_OFF)
-  }
-  return packCells(cells)
+  return canvasToCells(canvas, columns, DOG_ROWS, mode)
 }

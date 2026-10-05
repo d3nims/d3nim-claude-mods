@@ -35,18 +35,16 @@ test('the band draws three flames and three labels on the terminal', async ($, o
   await ui.unmount()
 })
 
-test('/terry shows the terrier with two bone gauges and /flame1 brings the flames back', async ($, on) => {
+test('/terry shows the terrier and /flame1 brings the flames back', async ($, on) => {
   engine(on, 55)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 110 } as never })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await $.command.run({ command: 'terry', args: '' } as never)
   await ui.redraw()
   expect(await ui.find({ type: 'Raster', key: 'dog' })).toBeDefined()
-  expect(await ui.find({ type: 'Raster', key: 'bone1' })).toBeDefined()
-  expect(await ui.find({ type: 'Raster', key: 'bone2' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^주간$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^대화$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Opus 5\.5$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /주간 71%/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /대화 12%/ })).toBeDefined()
   await $.command.run({ command: 'flame1', args: '' } as never)
   await ui.redraw()
   expect(await ui.find({ type: 'Raster', key: 'band' })).toBeDefined()
