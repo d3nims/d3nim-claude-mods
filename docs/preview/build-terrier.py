@@ -174,7 +174,7 @@ def limb(img, pts, r, c, with_paw=True, far=False):
         paw(img, pts[-1][0], pts[-1][1], far)
 
 
-def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False, bark=False, dash=False):
+def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False, bark=False, dash=False, hx=0.0, st=0.0):
     """front / hind: [(near leg points), (far leg points)] as lists of (x, y) design units; ignored when lying."""
     img = new()
     if sit:
@@ -196,13 +196,13 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
         limb(img, [(13.0, 12.6), (13.2, 15.8), (13.4, G)], 0.68, 'O')                     # near front leg
     else:
         by = (12.4 if not lying else 16.2) - bob        # rib-cage centre height, lifted by `bob` while trotting
-        dy = (0.0 if not lying else 6.2) - bob * 0.6 + (1.3 if dash else 0.0)  # head lowered; running, he charges head-down
+        dy = (0.0 if not lying else 6.2) - bob * 0.6 + (2.6 if dash else 0.0)  # head lowered; running, he stretches it out at body height
         # tail: thin, hangs low from the rump and curls out, light tuft at the tip
         if dash:
             # running flat out: the tail streams out behind
-            line(img, (3.4, by - 0.6), (1.4, by - 0.4 + wag * 0.3), 0.5, 'O')
-            line(img, (1.4, by - 0.4 + wag * 0.3), (-0.2, by - 1.0 + wag * 0.6), 0.42, 'O')
-            ellipse(img, -0.2, by - 1.1 + wag * 0.6, 0.8, 0.5, 'W')
+            line(img, (3.4 - st, by - 0.6), (1.4 - st, by - 0.4 + wag * 0.3), 0.5, 'O')
+            line(img, (1.4 - st, by - 0.4 + wag * 0.3), (-0.2 - st, by - 1.0 + wag * 0.6), 0.42, 'O')
+            ellipse(img, -0.2 - st, by - 1.1 + wag * 0.6, 0.8, 0.5, 'W')
         else:
             line(img, (3.2, by - 0.4), (1.8, by + 2.2), 0.5, 'O')
             line(img, (1.8, by + 2.2), (1.9 + wag, by + 4.0), 0.42, 'O')
@@ -212,10 +212,10 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
             limb(img, front[1], 0.62, 'S', far=True)
             limb(img, hind[1], 0.62, 'S', far=True)
         # body: deep chest, ribs, roached loin (the highest point of the back), rump sloping down, belly tucked up
-        ellipse(img, 14.0, by + 0.3, 2.8, 2.6, 'O')
-        ellipse(img, 10.6, by, 5.0, 2.5, 'O')
-        ellipse(img, 7.8, by - 1.3, 3.0, 1.8, 'O')
-        ellipse(img, 4.9, by + 0.1, 2.4, 1.9, 'O')
+        ellipse(img, 14.0 + st, by + 0.3, 2.8, 2.6, 'O')
+        ellipse(img, 10.6, by, 5.0 + st * 0.8, 2.5 - max(0.0, st) * 0.25, 'O')
+        ellipse(img, 7.8 - st * 0.5, by - 1.3 - min(0.0, st) * 0.5, 3.0, 1.8, 'O')
+        ellipse(img, 4.9 - st, by + 0.1, 2.4, 1.9, 'O')
         # shading: dark underneath, lit along the back, deep shadow in the tuck-up
         ellipse(img, 10.4, by + 2.0, 5.6, 1.5, 'D', clip=lambda k: k == 'O')
         ellipse(img, 5.6, by + 1.4, 2.4, 1.1, 'D', clip=lambda k: k == 'O')
@@ -225,20 +225,21 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
             limb(img, front[0], 0.68, 'O')
             limb(img, hind[0], 0.68, 'O')
     # long arched neck rising forward from the shoulders, fluffy ruff at the front of the chest
-    ellipse(img, 14.4, by - 2.8, 1.9, 3.2, 'O', tilt=-0.62)
-    ellipse(img, 15.4, by - 0.6, 1.1, 2.0, 'm', tilt=-0.25, clip=lambda k: k in BODY)
-    ellipse(img, 13.4, by - 3.6, 0.9, 1.9, 'L', tilt=-0.62, clip=lambda k: k in BODY)
+    nx, ny = hx * 0.6 + st, (dy * 0.45 if dash else 0.0)       # the neck reaches out with the head when he runs
+    ellipse(img, 14.4 + nx, by - 2.8 + ny, 1.9, 3.2, 'O', tilt=-0.62 + (0.35 if dash else 0.0))
+    ellipse(img, 15.4 + nx, by - 0.6 + ny * 0.5, 1.1, 2.0, 'm', tilt=-0.25, clip=lambda k: k in BODY)
+    ellipse(img, 13.4 + nx, by - 3.6 + ny, 0.9, 1.9, 'L', tilt=-0.62, clip=lambda k: k in BODY)
     curls(img, 2.0, 16.6, by - 6.4, by + (6.6 if sit else 3.4))
     # head, dy lowered when asleep. One egg shape tilted toward the nose, so the profile from the crown to the nose
     # is a single smooth, slightly rounded slope: no step at the forehead.
-    ellipse(img, 18.6, 4.4 + dy, 6.0, 3.3, 'W', tilt=0.3)               # skull and muzzle as one egg
-    ellipse(img, 16.2, 3.0 + dy, 3.1, 2.6, 'W', tilt=0.2)               # rounded crown of the topknot
-    ellipse(img, 22.2, 5.5 + dy, 2.2, 1.5, 'W', tilt=0.25)              # nose end
-    ellipse(img, 16.6, 7.3 + dy, 3.0, 1.8, 'W')                          # throat, joins the head to the neck
+    ellipse(img, 18.6 + hx, 4.4 + dy, 6.0, 3.3, 'W', tilt=0.3)               # skull and muzzle as one egg
+    ellipse(img, 16.2 + hx, 3.0 + dy, 3.1, 2.6, 'W', tilt=0.2)               # rounded crown of the topknot
+    ellipse(img, 22.2 + hx, 5.5 + dy, 2.2, 1.5, 'W', tilt=0.25)              # nose end
+    ellipse(img, 16.6 + hx, 7.3 + dy, 3.0, 1.8, 'W')                          # throat, joins the head to the neck
     # soft shading: under the jaw, along the muzzle, and curls on the topknot
-    ellipse(img, 20.6, 7.1 + dy, 3.4, 0.9, 'm', tilt=0.18, clip=lambda k: k == 'W')
-    ellipse(img, 21.9, 6.5 + dy, 1.9, 0.5, 'm', tilt=0.25, clip=lambda k: k == 'W')
-    X0, X1, Y0, Y1 = int(sub(13.0)), int(sub(19.5)), int(sub(0.4 + dy)), int(sub(4.6 + dy))
+    ellipse(img, 20.6 + hx, 7.1 + dy, 3.4, 0.9, 'm', tilt=0.18, clip=lambda k: k == 'W')
+    ellipse(img, 21.9 + hx, 6.5 + dy, 1.9, 0.5, 'm', tilt=0.25, clip=lambda k: k == 'W')
+    X0, X1, Y0, Y1 = int(sub(13.0 + hx)), int(sub(19.5 + hx)), int(sub(0.4 + dy)), int(sub(4.6 + dy))
     for y in range(Y0, Y1):
         for x in range(X0, X1):
             if 0 <= x < CW and 0 <= y < CH and img[y][x] == 'W' and hash2((x + (y // 2) % 2) // 2, y // 2) < 30:
@@ -246,28 +247,28 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
     # eye: a dark almond
     # kept plain and a little larger than life: on a terminal cell (two colours at most) a socket ring or a spark
     # of light would crowd the eye out
-    ellipse(img, 19.9, 4.4 + dy, 0.8, 0.55, 'E', tilt=0.25)
+    ellipse(img, 19.9 + hx, 4.4 + dy, 0.8, 0.55, 'E', tilt=0.25)
     # big dark nose at the very tip, with a shine
-    ellipse(img, 23.75, 5.5 + dy, 0.95, 0.8, 'N', tilt=0.2)
-    put(img, sub(23.5), sub(5.2 + dy), 'h')
+    ellipse(img, 23.75 + hx, 5.5 + dy, 0.95, 0.8, 'N', tilt=0.2)
+    put(img, sub(23.5 + hx), sub(5.2 + dy), 'h')
     if bark:
         # open mouth: dark inside, the lower jaw dropped a little, the tip of the tongue
-        polygon(img, [(20.4, 6.3 + dy), (23.5, 5.9 + dy), (23.3, 7.7 + dy), (20.8, 7.3 + dy)], 'M')
-        ellipse(img, 21.6, 6.9 + dy, 0.8, 0.35, 'T', tilt=0.2)
-        ellipse(img, 21.4, 8.1 + dy, 2.1, 0.6, 'W', tilt=0.22)
+        polygon(img, [(20.4 + hx, 6.3 + dy), (23.5 + hx, 5.9 + dy), (23.3 + hx, 7.7 + dy), (20.8 + hx, 7.3 + dy)], 'M')
+        ellipse(img, 21.6 + hx, 6.9 + dy, 0.8, 0.35, 'T', tilt=0.2)
+        ellipse(img, 21.4 + hx, 8.1 + dy, 2.1, 0.6, 'W', tilt=0.22)
     else:
         # mouth line along the lower muzzle
         for i in range(7):
-            put(img, sub(22.6 - i * 0.36), sub(6.5 + dy + i * 0.07), 'S')
+            put(img, sub(22.6 + hx - i * 0.36), sub(6.5 + dy + i * 0.07), 'S')
     # long ear close to the head: wide at the base, tapering and slanting back to a ragged light tassel
-    polygon(img, [(15.6, 2.8 + dy), (17.3, 3.1 + dy), (17.4, 5.2 + dy), (16.6, 7.4 + dy), (15.4, 9.0 + dy),
-                  (14.8, 7.0 + dy), (14.8, 4.4 + dy)], 'D')
-    ellipse(img, 16.2, 4.6 + dy, 0.55, 1.4, 'e', tilt=0.12, clip=lambda k: k == 'D')            # inner shade, soft
-    ellipse(img, 16.9, 3.7 + dy, 0.5, 0.7, 'L', clip=lambda k: k == 'D')                         # light on the fold
-    polygon(img, [(14.9, 7.8 + dy), (16.6, 7.6 + dy), (16.2, 9.4 + dy), (15.4, 10.6 + dy), (14.9, 9.2 + dy)], 'W')
+    polygon(img, [(15.6 + hx, 2.8 + dy), (17.3 + hx, 3.1 + dy), (17.4 + hx, 5.2 + dy), (16.6 + hx, 7.4 + dy), (15.4 + hx, 9.0 + dy),
+                  (14.8 + hx, 7.0 + dy), (14.8 + hx, 4.4 + dy)], 'D')
+    ellipse(img, 16.2 + hx, 4.6 + dy, 0.55, 1.4, 'e', tilt=0.12, clip=lambda k: k == 'D')            # inner shade, soft
+    ellipse(img, 16.9 + hx, 3.7 + dy, 0.5, 0.7, 'L', clip=lambda k: k == 'D')                         # light on the fold
+    polygon(img, [(14.9 + hx, 7.8 + dy), (16.6 + hx, 7.6 + dy), (16.2 + hx, 9.4 + dy), (15.4 + hx, 10.6 + dy), (14.9 + hx, 9.2 + dy)], 'W')
     if tongue:
-        polygon(img, [(21.2, 6.8 + dy), (22.7, 6.8 + dy), (22.6, 8.6 + dy), (22.0, 9.2 + dy), (21.3, 8.5 + dy)], 'T')
-        line(img, (21.95, 6.9 + dy), (21.95, 8.7 + dy), 0.06, 't')
+        polygon(img, [(21.2 + hx, 6.8 + dy), (22.7 + hx, 6.8 + dy), (22.6 + hx, 8.6 + dy), (22.0 + hx, 9.2 + dy), (21.3 + hx, 8.5 + dy)], 'T')
+        line(img, (21.95 + hx, 6.9 + dy), (21.95 + hx, 8.7 + dy), 0.06, 't')
     if lying:
         line(img, (12.8, by + 2.4), (19.6, by + 2.6), 0.7, 'W')          # paws stretched forward
         for x in (17.4, 18.6, 19.8):
@@ -373,6 +374,42 @@ for i in range(6):
     hind = [run_leg(5.8, hh_, ph + 0.5, True), run_leg(6.6, hh_, ph, True)]
     RUN_FAST.append(terrier(front, hind, bob=bob, wag=math.sin(2 * math.pi * ph * 2), dash=True))
 
+# A gallop after Muybridge's 1887 plates of a galloping dog: the head out at body height, the body bunching up and
+# stretching out, the legs reaching far forward and far back. Four key poses (st = body stretch, hx = head forward):
+#   1 gathered: all four legs under him, body bunched, in the air
+#   2 front legs reach out while the hind legs push off behind
+#   3 stretched flat out in the air
+#   4 front feet land, hind legs swing forward
+DASH_KEYS = [
+    dict(st=-0.6, bob=0.7, hx=1.0, wag=0.5,
+         fn=((13.0, 16.0), (11.6, 17.4)), ff=((12.0, 16.2), (10.4, 17.8)),
+         hn=((8.0, 15.8), (10.2, 17.2)), hf=((7.4, 16.0), (9.2, 17.8))),
+    dict(st=0.2, bob=0.2, hx=1.6, wag=0.0,
+         fn=((15.8, 15.6), (17.8, 17.4)), ff=((14.8, 16.2), (16.2, 18.4)),
+         hn=((3.6, 16.2), (2.4, G)), hf=((4.4, 16.4), (3.6, G))),
+    dict(st=1.0, bob=0.5, hx=2.0, wag=-1.0,
+         fn=((17.0, 15.4), (19.4, 17.0)), ff=((16.0, 15.8), (18.0, 17.6)),
+         hn=((2.2, 15.6), (-0.2, 17.0)), hf=((3.0, 15.8), (0.8, 17.6))),
+    dict(st=0.4, bob=0.0, hx=1.6, wag=0.0,
+         fn=((15.6, 16.2), (16.4, G)), ff=((14.6, 16.4), (14.8, G)),
+         hn=((5.2, 16.0), (6.0, 17.6)), hf=((4.6, 16.2), (5.0, 18.0))),
+]
+
+
+def dash_frame(k):
+    hf_, hh_ = HF - k['bob'], HH - k['bob']
+    leg_ = lambda hip, y, kp: [(hip, y), kp[0], kp[1]]
+    return terrier([leg_(13.4 + k['st'], hf_, k['fn']), leg_(12.2 + k['st'], hf_, k['ff'])],
+                   [leg_(5.6 - k['st'], hh_, k['hn']), leg_(6.4 - k['st'], hh_, k['hf'])],
+                   bob=k['bob'], wag=k['wag'], dash=True, hx=k['hx'], st=k['st'])
+
+
+DASH = []
+for i in range(8):
+    a_, b_ = DASH_KEYS[i // 2], DASH_KEYS[(i // 2 + 1) % 4]
+    t_ = (i % 2) * 0.5
+    DASH.append(dash_frame({key: _mix(a_[key], b_[key], t_) for key in a_}))
+
 GALLOP = []
 for i in range(8):
     a_, b_ = GALLOP_KEYS[i // 2], GALLOP_KEYS[(i // 2 + 1) % 4]
@@ -408,7 +445,7 @@ def pack(frames, durations):
     return {'durations': durations, 'frames': [encode(f) for f in frames]}
 
 
-sets = {'walk': pack(RUN, [80] * len(RUN)), 'run': pack(RUN_FAST, [55] * len(RUN_FAST)), 'gallop': pack(GALLOP, [55] * len(GALLOP)), 'pant': pack(PANT, [260, 260]), 'sleep': pack(SLEEP, [700, 700]),
+sets = {'walk': pack(RUN, [80] * len(RUN)), 'run': pack(DASH, [60] * len(DASH)), 'trot': pack(RUN_FAST, [55] * len(RUN_FAST)), 'gallop': pack(GALLOP, [55] * len(GALLOP)), 'pant': pack(PANT, [260, 260]), 'sleep': pack(SLEEP, [700, 700]),
         'sit': pack(SIT, [900, 900]), 'wag': pack(WAG, [110] * 4), 'bark': pack(BARK, [170, 170, 260])}
 assert len(palette) <= len(ALPHABET), len(palette)
 json.dump({'alphabet': ALPHABET, 'palette': palette, 'width': CW, 'height': CH, 'subpixel': True, 'sets': sets},
@@ -418,7 +455,7 @@ print('coat', coat, '| k', K, '|', CW, 'x', CH, 'sub-pixels =', CW // 2, 'column
 if '--preview' in sys.argv:
     from PIL import Image
     Z = max(3, int(round(6 / K)))
-    frames = RUN_FAST
+    frames = DASH
     sheet = Image.new('RGB', (len(frames) * (CW * Z + 14), CH * Z), (24, 24, 30))
     for n, im in enumerate(frames):
         for y, row in enumerate(im):
