@@ -58,6 +58,20 @@ function prettyModel(id) {
   return version ? family + ' ' + version : family
 }
 // 밴드 아래 줄이나 강아지 화면 아래에 붙는 짧은 표기. 예: 'Opus 5.5 · high'
+// 모델은 연보라, 추론 강도는 단계별 색 (경고에 쓰는 노랑·주황·빨강은 피했다)
+const MODEL_COLOR = '#b4a0ff'
+const EFFORT_COLORS = { low: '#8a8f98', medium: '#7fb2ff', high: '#c792ea', xhigh: '#ff9ecd', max: '#ff6fae' }
+const effortColor = level => EFFORT_COLORS[level] ?? '#c792ea'
+function modelTexts(Text, prefix, lead) {
+  const name = prettyModel(modelId)
+  if (!name) return []
+  const parts = [Text({ key: prefix + 'm', color: MODEL_COLOR, bold: true, children: [lead + name] })]
+  if (effort) {
+    parts.push(Text({ key: prefix + 'sep', dimColor: true, children: [' · '] }))
+    parts.push(Text({ key: prefix + 'e', color: effortColor(effort), children: [effort] }))
+  }
+  return parts
+}
 const modelLine = () => {
   const name = prettyModel(modelId)
   if (!name) return null
@@ -225,8 +239,8 @@ export function register(on) {
                     marginLeft: 3,
                     paddingTop: Math.max(0, Math.floor(DOG_ROWS / 2) - 2),
                     children: [
-                      Text({ key: 'ds-model', bold: true, children: [name] }),
-                      Text({ key: 'ds-effort', dimColor: true, children: [effort ?? ''] }),
+                      Text({ key: 'ds-model', color: MODEL_COLOR, bold: true, children: [name] }),
+                      Text({ key: 'ds-effort', color: effortColor(effort), children: [effort ?? ''] }),
                     ],
                   }),
                 ],
@@ -238,7 +252,7 @@ export function register(on) {
             flexDirection: 'row',
             children: [
               Text({ key: 'dm-label', color: stateColor(pct), bold: true, children: ['5시간 ' + show(vals[0])] }),
-              Text({ key: 'dm-model', dimColor: true, children: [!side && modelLine() ? '   ' + modelLine() : ''] }),
+              ...(side ? [] : modelTexts(Text, 'dm-', '   ')),
               Text({ key: 'dm-hint', dimColor: true, children: ['   (강아지가 달리는 위치 · /flame1 로 불꽃 밴드)'] }),
             ],
           }),
@@ -281,7 +295,7 @@ export function register(on) {
           flexDirection: 'row',
           children: [
             ...labels,
-            ...(showModel ? [Text({ key: 'model', dimColor: true, children: [ml] })] : []),
+            ...(showModel ? modelTexts(Text, 'model-', '') : []),
           ],
         }),
       ],
