@@ -333,25 +333,89 @@ export function dogCells(columns, pct, ms, mode) {
 // mood -> which frames: sit (idle), wag (you are typing), bark (you just started typing), run (Claude is working),
 // happy (the answer just landed), sleep (nothing for a while)
 const MOOD_FRAMES = { sit: 'sit', wag: 'wag', bark: 'bark', run: 'run', happy: 'pant', sleep: 'sleep' }
-export const TERRY_COLS = DOG_COLS + 6
+const SKY_COLS = 12 // room to the right of Terry for the sun, the moon and the stars
+const SOIL_ROWS = 3 // sub-pixel rows of earth under the grass
+export const TERRY_COLS = DOG_COLS + SKY_COLS
+export const TERRY_ROWS = Math.ceil((ground + 1 + SOIL_ROWS) / 4)
 
-/** Terry in `mood`, ms since start: his frames, a dotted ground that slides while he runs, and a mark by his head. */
-export function terryCells(mood, ms, mode) {
+// Fixed colours (no gradients), so Raster's ~1000 exact colour pairs are never used up
+const GRASS = [[98, 164, 74], [74, 130, 58]]
+const SOIL = [[110, 80, 50], [88, 63, 39], [128, 94, 60]]
+const PEBBLE = [150, 146, 136]
+const SUN_DAWN = { core: [255, 196, 170], rim: [246, 128, 150] }
+const SUN_DAY = { core: [255, 232, 110], rim: [255, 190, 64] }
+const SUN_DUSK = { core: [255, 176, 92], rim: [240, 104, 60] }
+const MOON = { core: [238, 236, 218], rim: [190, 188, 172] }
+const STAR = [[226, 230, 255], [150, 160, 210]]
+
+/**
+ * Terry in `mood` at local `hour` (0-24, fractions allowed), ms since start.
+ *  - the sky to his right follows the clock: the sun rises at 6 and sets at 18 (pink at dawn, orange at dusk), then
+ *    the moon crosses with stars twinkling around
+ *  - he stands on grass over earth, which slides past while he runs
+ *  - a mark by his head: ! when he barks, * when he is pleased, z Z Z when he sleeps
+ */
+export function terryCells(mood, ms, mode, hour = 12) {
   const columns = TERRY_COLS
   const TW = columns * 2
-  const canvas = Array.from({ length: DOG_ROWS * 4 }, () => Array(TW).fill(null))
+  const H = TERRY_ROWS * 4
+  const canvas = Array.from({ length: H }, () => Array(TW).fill(null))
+  const put = (x, y, c) => { if (x >= 0 && x < TW && y >= 0 && y < H) canvas[y][x] = c }
+  const t = ms / 1000
   const set = SETS[MOOD_FRAMES[mood]] || SETS.sit
   const frame = set.frames[pick(set, ms)]
   const dogX = 2
-  const off = mood === 'run' ? Math.floor((ms / 1000) * 18) : 0
-  for (let x = 0; x < TW; x++) if ((x + off) % 4 < 2) canvas[ground][x] = [70, 72, 88]
+
+  // the sky, right of his nose
+  const skyX0 = dogX + SW + 1
+  const skyW = TW - skyX0 - 3
+  const isDay = hour >= 6 && hour < 18
+  const p = isDay ? (hour - 6) / 12 : ((hour - 18 + 24) % 24) / 12
+  const bx = Math.round(skyX0 + 2 + p * (skyW - 4))
+  const by = Math.round(ground - 9 - (ground - 15) * Math.sin(Math.PI * p))
+  if (!isDay) {
+    for (let i = 0; i < 14; i++) {
+      const x = Math.floor(hash(i, 701) * TW)
+      const y = Math.floor(hash(i, 702) * (ground - 8))
+      if (Math.abs(x - bx) < 4 && Math.abs(y - by) < 4) continue
+      const twinkle = Math.sin(t * (1.2 + hash(i, 703) * 2) + i * 2)
+      if (twinkle > -0.4) put(x, y, STAR[twinkle > 0.5 ? 0 : 1])
+    }
+  }
+  const look = !isDay ? MOON : hour < 7.5 ? SUN_DAWN : hour >= 16.5 ? SUN_DUSK : SUN_DAY
+  for (let dy = -3; dy <= 3; dy++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const d = Math.hypot(dx, dy * 0.9)
+      if (d > 3.1) continue
+      if (!isDay && Math.hypot(dx - 1.6, dy + 0.8) < 2.4) continue // a bite out of the moon: a crescent
+      put(bx + dx, by + dy, d <= 1.9 ? look.core : look.rim)
+    }
+  }
+  if (isDay && Math.sin(t * 2) > -0.2) {
+    for (const [dx, dy] of [[-5, 0], [5, 0], [0, -5], [-4, -4], [4, -4]]) put(bx + dx, by + dy, look.rim)
+  }
+
+  // the ground: a grassy edge on earth with a few pebbles; it slides past while he runs
+  const off = mood === 'run' ? Math.floor(t * 18) : 0
+  for (let x = 0; x < TW; x++) {
+    const wx = x + off
+    for (let k = 1; k <= SOIL_ROWS; k++) {
+      const y = ground + k
+      put(x, y, hash(wx >> 2, y + 41) < 0.06 ? PEBBLE : k === 1 ? SOIL[2] : SOIL[hash(wx >> 1, y) < 0.3 ? 1 : 0])
+    }
+    put(x, ground, GRASS[(wx >> 1) & 1])
+    if (hash(wx, 7) < 0.4) put(x, ground - 1, GRASS[wx & 1])
+    if (hash(wx, 8) < 0.12) put(x, ground - 2, GRASS[1])
+  }
+
+  // Terry on top
   for (let y = 0; y < frame.length; y++) {
     for (let x = 0; x < SW; x++) {
       const c = frame[y][x]
-      if (c && dogX + x < TW) canvas[y][dogX + x] = c
+      if (c) put(dogX + x, y, c)
     }
   }
-  const cells = canvasToCellList(canvas, columns, DOG_ROWS, mode)
+  const cells = canvasToCellList(canvas, columns, TERRY_ROWS, mode)
   const markX = Math.ceil((dogX + SW) / 2)
   if (mood === 'bark' && Math.floor(ms / 340) % 2 === 0) writeText(cells, columns, markX, 1, '!', 0xffd166)
   if (mood === 'happy' && Math.floor(ms / 300) % 2 === 0) writeText(cells, columns, markX, 0, '*', 0xffd166)

@@ -4,13 +4,17 @@
 // 뒤에 quad 또는 braille 을 붙이면 그림 방식을 바꿉니다 (예: /terry braille)
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
-import { BAND_GAP, BAND_NAMES, DOG_ROWS, TERRY_COLS, makeBand, stateColor, terryCells } from './render.js'
+import { BAND_GAP, BAND_NAMES, TERRY_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 66 // 약 15프레임
 
 const startedAt = Date.now()
 const nowMs = () => Date.now() - startedAt
+const localHour = () => {
+  const d = new Date()
+  return d.getHours() + d.getMinutes() / 60
+}
 
 let usage = null // $.session.usage() 의 마지막 결과
 let modelId = null // 지금 모델 (/model 이 보여주는 것)
@@ -308,9 +312,9 @@ export function register(on) {
         yield chunk
         continue
       }
-      if (chunk.kind === 'text' || chunk.kind === 'thinking') {
+      if (chunk.kind === 'text' || chunk.kind === 'thinking' || chunk.kind === 'input') {
         if (!turn.genStart) turn.genStart = Date.now()
-        turn.liveChars += chunk.text.length
+        turn.liveChars += chunk.kind === 'input' ? chunk.json.length : chunk.text.length
       } else if (chunk.kind === 'stop' && chunk.usage) {
         turn.input += chunk.usage.input_tokens
         turn.output += chunk.usage.output_tokens
@@ -406,7 +410,7 @@ export function register(on) {
       if (e.props.isWorking === false && working) endTurn('answer')
       const m = mood()
       drawnMood = m
-      runAnim($, e.requestId, 'terry', TERRY_COLS, DOG_ROWS, () => terryCells(mood(), nowMs(), mode))
+      runAnim($, e.requestId, 'terry', TERRY_COLS, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour()))
       const name = prettyModel(modelId)
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
       const card = Box({
@@ -432,29 +436,35 @@ export function register(on) {
           Text({ key: 'tc-tokens', dimColor: true, children: [t ? t.tokens : ' '] }),
         ],
       })
-      // 사용량은 한 줄로 작게
-      const usageLine = Box({
+      // 사용량: 카드 아래에 줄을 맞춘 작은 표 (이름 / 막대 / % / 초기화)
+      const MINI = 10
+      const usageTable = Box({
         key: 'terry-usage',
-        flexDirection: 'row',
-        children: BAND_NAMES.flatMap((nm, i) => {
+        flexDirection: 'column',
+        marginTop: 1,
+        children: BAND_NAMES.map((nm, i) => {
+          const v = vals[i] ?? 0
+          const filled = v <= 0 ? 0 : Math.max(1, Math.round((Math.min(100, v) / 100) * MINI))
           const reset = resetText(i)
-          return [
-            Text({ key: 'tu' + i, color: stateColor(vals[i] ?? 0), bold: true, children: [nm + ' ' + show(vals[i])] }),
-            Text({ key: 'tr' + i, dimColor: true, children: [(reset ? ' · ' + reset : '') + (i < 2 ? '   ' : '')] }),
-          ]
+          return Box({
+            key: 'tu' + i,
+            flexDirection: 'row',
+            children: [
+              Text({ key: 'tu-n' + i, dimColor: true, children: [nm + ' '.repeat(6 - visible(nm))] }),
+              Text({ key: 'tu-f' + i, color: stateColor(v), children: ['█'.repeat(filled)] }),
+              Text({ key: 'tu-e' + i, dimColor: true, children: ['░'.repeat(MINI - filled)] }),
+              Text({ key: 'tu-v' + i, color: stateColor(v), bold: true, children: [' ' + show(vals[i]).padStart(4, ' ')] }),
+              Text({ key: 'tu-r' + i, dimColor: true, children: [reset ? '  ' + reset : ''] }),
+            ],
+          })
         }),
       })
-      const dog = Raster({ key: 'terry', columns: TERRY_COLS, rows: DOG_ROWS, cells: terryCells(m, nowMs(), mode) })
-      const wide = cols >= TERRY_COLS + 40
-      return Box({
-        flexDirection: 'column',
-        children: [
-          wide
-            ? Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-side', marginLeft: 2, paddingTop: 2, children: [card] })] })
-            : Box({ key: 'terry-col', flexDirection: 'column', children: [dog, card] }),
-          usageLine,
-        ],
-      })
+      const dog = Raster({ key: 'terry', columns: TERRY_COLS, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), mode, localHour()) })
+      const side = Box({ key: 'terry-side', flexDirection: 'column', children: [card, usageTable] })
+      if (cols >= TERRY_COLS + 44) {
+        return Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: 4, children: [side] })] })
+      }
+      return Box({ key: 'terry-col', flexDirection: 'column', children: [dog, side] })
     }
 
     // /flame1 화면: 5시간 | 주간 | 대화, 칸마다 불꽃
