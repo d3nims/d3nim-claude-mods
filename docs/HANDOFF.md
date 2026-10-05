@@ -146,5 +146,5 @@ claude plugin update usage-meter@d3nim-claude-mods
 
 ### 남은 일
 - ~~git init → private repo → push~~ 완료: https://github.com/d3nims/d3nim-claude-mods (main). `.gitattributes`로 `* text=auto eol=lf`. 작성자는 저장소 로컬 git 설정을 따름.
-- 동료 설치 테스트: `claude plugin marketplace add d3nims/d3nim-claude-mods` → `claude plugin install usage-meter@d3nim-claude-mods` (private이라 동료가 저장소 접근 권한 + GitHub 로그인 필요)
+- 동료 설치 테스트: `claude plugin marketplace add d3nims/d3nim-claude-mods` → `claude plugin install usage-meter@d3nim-claude-mods` (2026-10-05 공개 저장소로 전환, 로그인 없이 설치 가능)
 - 안전장치 mod(2순위)

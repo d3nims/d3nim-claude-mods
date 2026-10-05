@@ -19,7 +19,7 @@ claude plugin marketplace add d3nims/d3nim-claude-mods
 claude plugin install usage-meter@d3nim-claude-mods
 ```
 
-> 비공개 저장소라면 GitHub 계정에 이 저장소 접근 권한이 있어야 하고, `gh auth login` 이나 git 자격 증명으로 로그인돼 있어야 합니다.
+> 공개 저장소라 GitHub 로그인 없이 받을 수 있습니다.
 
 ## 업데이트
 
