@@ -9,13 +9,13 @@ The sprite is drawn on a square grid with 2 pixels per terminal column and 4 per
 can show it as braille (2x4) or quadrant blocks (2x2).
 
 Sets: run (2 frames, legs alternate), pant (standing, tongue out), sleep (lying down).
-Usage: python3 build-terrier.py [--k=0.85] [--coat=blue|liver|sandy] [--preview]
+Usage: python3 build-terrier.py [--k=0.85] [--coat=silver|blue|liver|sandy] [--preview]
   --k  size factor: 0.7 is 8 rows, 0.85 (default) about 10 rows, 1.05 about 12 rows, 1.4 about 17 rows. Everything is drawn at that size.
 """
 import json, math, sys
 
 K = 0.85
-coat = 'blue'
+coat = 'silver'
 for a in sys.argv[1:]:
     if a.startswith('--k='):
         K = float(a[4:])
@@ -24,12 +24,15 @@ for a in sys.argv[1:]:
 
 ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
 COATS = {  # base coat, darker shade, light fluff
+    # silver: every colour has equal red, green and blue, so a terminal that falls back to 256 colours still shows it
+    # grey (a blue-grey turns lavender and teal there)
+    'silver': ((176, 176, 176), (112, 112, 112), (242, 242, 242)),
     'blue': ((170, 182, 208), (108, 120, 150), (240, 244, 250)),
     'liver': ((176, 128, 104), (122, 80, 64), (238, 216, 198)),
     'sandy': ((222, 178, 118), (178, 128, 76), (250, 236, 208)),
 }
 BASE, DARK, FLUFF = COATS[coat]
-INK = (44, 38, 52)
+INK = (44, 44, 44)
 
 
 def mix(a, b, t):
@@ -44,9 +47,9 @@ COL = {
     'W': FLUFF,                       # fluff: head, paws, tassels
     'm': mix(FLUFF, BASE, 0.4),       # shaded fluff
     'e': mix(DARK, FLUFF, 0.35),      # inner ear
-    'N': (20, 18, 24),                # nose
-    'h': (118, 118, 134),             # shine on the nose
-    'E': (24, 20, 26),                # eye
+    'N': (20, 20, 20),                # nose
+    'h': (124, 124, 124),             # shine on the nose
+    'E': (24, 24, 24),                # eye
     'T': (236, 112, 128),             # tongue
     'M': (112, 36, 50),               # inside of the open mouth
     't': (196, 78, 98),
