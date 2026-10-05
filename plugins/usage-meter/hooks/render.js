@@ -348,6 +348,36 @@ const SUN_DUSK = { core: [255, 176, 92], rim: [240, 104, 60] }
 const MOON = { core: [238, 236, 218], rim: [190, 188, 172] }
 const STAR = [[226, 230, 255], [150, 160, 210]]
 
+// Blinking: about every 4.2 s the eye shuts for 140 ms, and every third time twice in a row. Asleep, it stays shut.
+const BLINK_EVERY = 4200
+function isBlinking(ms) {
+  const m = ms % BLINK_EVERY
+  return m < 140 || (Math.floor(ms / BLINK_EVERY) % 3 === 0 && m > 300 && m < 440)
+}
+const EYE = [24, 24, 24] // the eye's colour in the sprite (the nose is a different near-black)
+const isEye = c => c !== null && c[0] === EYE[0] && c[1] === EYE[1] && c[2] === EYE[2]
+const LID = [28, 28, 28] // near-black, so a cell always keeps it (see isFeature): a thin closed-eye line
+const FACE = [226, 226, 226]
+/** The frame with the eye shut: the eye becomes face colour with a lid line along its bottom, a pixel longer at each
+ * end, so on a terminal cell it reads as a dash rather than a dot. */
+function closeEyes(frame, shut) {
+  if (!shut) return frame
+  let lowest = -1
+  let minX = Infinity
+  let maxX = -1
+  frame.forEach((row, y) => row.forEach((c, x) => {
+    if (!isEye(c)) return
+    lowest = Math.max(lowest, y)
+    minX = Math.min(minX, x)
+    maxX = Math.max(maxX, x)
+  }))
+  if (lowest < 0) return frame
+  return frame.map((row, y) => {
+    if (y !== lowest && !row.some(isEye)) return row
+    return row.map((c, x) => (y === lowest && x >= minX - 1 && x <= maxX + 1 && c ? LID : isEye(c) ? FACE : c))
+  })
+}
+
 /**
  * Terry in `mood` at local `hour` (0-24, fractions allowed), ms since start.
  *  - the sky to his right follows the clock: the sun rises at 6 and sets at 18 (pink at dawn, orange at dusk), then
@@ -363,7 +393,7 @@ export function terryCells(mood, ms, mode, hour = 12) {
   const put = (x, y, c) => { if (x >= 0 && x < TW && y >= 0 && y < H) canvas[y][x] = c }
   const t = ms / 1000
   const set = SETS[MOOD_FRAMES[mood]] || SETS.sit
-  const frame = set.frames[pick(set, ms)]
+  const frame = closeEyes(set.frames[pick(set, ms)], mood === 'sleep' || isBlinking(ms))
   const dogX = 2
 
   // the sky, right of his nose
