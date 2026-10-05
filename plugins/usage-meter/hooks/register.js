@@ -491,9 +491,11 @@ export function register(on) {
         ],
       })
       // 사용량: 오른쪽 아래에 줄을 맞춘 작은 표 (이름 / 막대 / % / 초기화). 폭이 모자라면 초기화 문구를 뺀다.
-      const MINI = 8
+      // 막대는 가는 선(━)으로 그려 세 줄 사이에 틈이 생기게 하고, 남는 폭만큼 길게 늘인다.
       const sideRoom = cols - TERRY_COLS - 4
       const withReset = sideRoom >= 34
+      const gap = sideRoom >= 40 ? 4 : 2
+      const MINI = Math.max(8, Math.min(20, sideRoom - gap - 11 - (withReset ? 15 : 0)))
       const usageTable = Box({
         key: 'terry-usage',
         flexDirection: 'column',
@@ -506,8 +508,8 @@ export function register(on) {
             flexDirection: 'row',
             children: [
               Text({ key: 'tu-n' + i, dimColor: true, children: [nm + ' '.repeat(6 - visible(nm))] }),
-              Text({ key: 'tu-f' + i, color: stateColor(v), children: ['█'.repeat(filled)] }),
-              Text({ key: 'tu-e' + i, dimColor: true, children: ['░'.repeat(MINI - filled)] }),
+              Text({ key: 'tu-f' + i, color: stateColor(v), children: ['━'.repeat(filled)] }),
+              Text({ key: 'tu-e' + i, dimColor: true, children: ['─'.repeat(MINI - filled)] }),
               Text({ key: 'tu-v' + i, color: stateColor(v), bold: true, children: [' ' + show(vals[i]).padStart(4, ' ')] }),
               Text({ key: 'tu-r' + i, dimColor: true, children: [reset ? '  ' + reset : ''] }),
             ],
@@ -518,7 +520,7 @@ export function register(on) {
       // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
       if (sideRoom >= 26) {
         const side = Box({ key: 'terry-side', flexDirection: 'column', height: TERRY_ROWS, justifyContent: 'space-between', children: [card, usageTable] })
-        return Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: sideRoom >= 40 ? 4 : 2, children: [side] })] })
+        return Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: gap, children: [side] })] })
       }
       return Box({ key: 'terry-col', flexDirection: 'column', children: [dog, card, usageTable] })
     }
