@@ -70,13 +70,29 @@ def sub(v, off=MARGIN):
     return v * S + off
 
 
+ROT = None  # (angle, cx, cy) in design units while the body pitches; legs and paws are drawn unrotated
+
+
+def turn(x, y):
+    if ROT is None:
+        return x, y
+    a, cx, cy = ROT
+    dx, dy = x - cx, y - cy
+    return cx + dx * math.cos(a) - dy * math.sin(a), cy + dx * math.sin(a) + dy * math.cos(a)
+
+
 def put(img, x, y, c):
+    if ROT is not None:
+        dx_, dy_ = turn((x - MARGIN) / S, (y - MARGIN) / S)
+        x, y = sub(dx_), sub(dy_)
     x, y = int(round(x)), int(round(y))
     if 0 <= x < CW and 0 <= y < CH:
         img[y][x] = c
 
 
 def ellipse(img, cx, cy, rx, ry, c, tilt=0.0, clip=None):
+    cx, cy = turn(cx, cy)
+    tilt += ROT[0] if ROT is not None else 0.0
     cx, cy, rx, ry = sub(cx), sub(cy), max(0.8, rx * S), max(0.8, ry * S)
     ct, st = math.cos(tilt), math.sin(tilt)
     for y in range(CH):
@@ -88,7 +104,7 @@ def ellipse(img, cx, cy, rx, ry, c, tilt=0.0, clip=None):
 
 
 def polygon(img, pts, c, clip=None):
-    pts = [(sub(x), sub(y)) for x, y in pts]
+    pts = [(sub(x), sub(y)) for x, y in (turn(*q) for q in pts)]
     for y in range(CH):
         for x in range(CW):
             px, py = x + 0.5, y + 0.5
@@ -166,6 +182,15 @@ def paw(img, x, y, far=False):
 
 
 def limb(img, pts, r, c, with_paw=True, far=False):
+    global ROT
+    # the hip rides on the pitching body; the rest of the leg reaches for the ground unrotated
+    pts = [turn(*pts[0])] + list(pts[1:])
+    saved, ROT = ROT, None
+    _limb(img, pts, r, c, with_paw, far)
+    ROT = saved
+
+
+def _limb(img, pts, r, c, with_paw, far):
     for a, b in zip(pts, pts[1:]):
         line(img, a, b, r, c)
     mid = pts[len(pts) // 2]
@@ -174,7 +199,8 @@ def limb(img, pts, r, c, with_paw=True, far=False):
         paw(img, pts[-1][0], pts[-1][1], far)
 
 
-def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False, bark=False, dash=False, hx=0.0, st=0.0):
+def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False, bark=False, dash=False, hx=0.0, st=0.0, pitch=0.0, hy=0.0):
+    global ROT
     """front / hind: [(near leg points), (far leg points)] as lists of (x, y) design units; ignored when lying."""
     img = new()
     if sit:
@@ -196,7 +222,9 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
         limb(img, [(13.0, 12.6), (13.2, 15.8), (13.4, G)], 0.68, 'O')                     # near front leg
     else:
         by = (12.4 if not lying else 16.2) - bob        # rib-cage centre height, lifted by `bob` while trotting
-        dy = (0.0 if not lying else 6.2) - bob * 0.6 + (2.6 if dash else 0.0)  # head lowered; running, he stretches it out at body height
+        dy = (0.0 if not lying else 6.2) - bob * 0.6 + (2.6 if dash else 0.0) + hy  # head lowered; running, he stretches it out at body height
+        # galloping, the whole body rocks: nose up as the hind legs push, nose down as the front feet land
+        ROT = (pitch, 10.6, by) if pitch else None
         # tail: thin, hangs low from the rump and curls out, light tuft at the tip
         if dash:
             # running flat out: the tail streams out behind
@@ -214,7 +242,7 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
         # body: deep chest, ribs, roached loin (the highest point of the back), rump sloping down, belly tucked up
         ellipse(img, 14.0 + st, by + 0.3, 2.8, 2.6, 'O')
         ellipse(img, 10.6, by, 5.0 + st * 0.8, 2.5 - max(0.0, st) * 0.25, 'O')
-        ellipse(img, 7.8 - st * 0.5, by - 1.3 - min(0.0, st) * 0.5, 3.0, 1.8, 'O')
+        ellipse(img, 7.8 - st * 0.5, by - 1.3 - min(0.0, st) * 1.4, 3.0, 1.8 - min(0.0, st) * 0.4, 'O')
         ellipse(img, 4.9 - st, by + 0.1, 2.4, 1.9, 'O')
         # shading: dark underneath, lit along the back, deep shadow in the tuck-up
         ellipse(img, 10.4, by + 2.0, 5.6, 1.5, 'D', clip=lambda k: k == 'O')
@@ -239,7 +267,7 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
     # soft shading: under the jaw, along the muzzle, and curls on the topknot
     ellipse(img, 20.6 + hx, 7.1 + dy, 3.4, 0.9, 'm', tilt=0.18, clip=lambda k: k == 'W')
     ellipse(img, 21.9 + hx, 6.5 + dy, 1.9, 0.5, 'm', tilt=0.25, clip=lambda k: k == 'W')
-    X0, X1, Y0, Y1 = int(sub(13.0 + hx)), int(sub(19.5 + hx)), int(sub(0.4 + dy)), int(sub(4.6 + dy))
+    X0, X1, Y0, Y1 = int(sub(13.0 + hx)), int(sub(19.5 + hx)), int(sub(0.4 + dy - abs(pitch) * 12)), int(sub(4.6 + dy + abs(pitch) * 12))
     for y in range(Y0, Y1):
         for x in range(X0, X1):
             if 0 <= x < CW and 0 <= y < CH and img[y][x] == 'W' and hash2((x + (y // 2) % 2) // 2, y // 2) < 30:
@@ -273,6 +301,7 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
         line(img, (12.8, by + 2.4), (19.6, by + 2.6), 0.7, 'W')          # paws stretched forward
         for x in (17.4, 18.6, 19.8):
             put(img, sub(x), sub(by + 2.7), 'S')
+    ROT = None
     return outline(img)
 
 
@@ -382,16 +411,16 @@ for i in range(6):
 #   4 front feet land, hind legs swing forward
 DASH_KEYS = [
     # far legs sit a beat behind the near ones and at least a cell apart, so each gets a terminal cell of its own
-    dict(st=-0.6, bob=0.7, hx=1.0, wag=0.5,
+    dict(st=-0.6, bob=1.0, hx=1.0, wag=0.5, pitch=-0.10, hy=-0.5,
          fn=((13.2, 16.0), (12.0, 17.3)), ff=((11.6, 16.3), (9.6, 17.9)),
          hn=((8.2, 15.8), (10.4, 17.1)), hf=((6.6, 16.2), (7.4, 18.0))),
-    dict(st=0.2, bob=0.2, hx=1.6, wag=0.0,
+    dict(st=0.2, bob=0.3, hx=1.6, wag=0.0, pitch=-0.07, hy=-0.2,
          fn=((16.0, 15.6), (18.0, 17.3)), ff=((14.2, 16.4), (15.2, G - 0.1)),
          hn=((3.4, 16.2), (2.0, G)), hf=((5.0, 16.4), (4.6, G))),
-    dict(st=1.0, bob=0.5, hx=2.0, wag=-1.0,
+    dict(st=1.0, bob=0.8, hx=2.0, wag=-1.0, pitch=0.0, hy=0.2,
          fn=((17.2, 15.4), (19.6, 16.9)), ff=((15.4, 16.0), (16.8, 18.0)),
          hn=((2.0, 15.6), (-0.4, 16.9)), hf=((3.6, 16.0), (2.0, 17.9))),
-    dict(st=0.4, bob=0.0, hx=1.6, wag=0.0,
+    dict(st=0.4, bob=0.0, hx=1.6, wag=0.0, pitch=0.09, hy=0.7,
          fn=((15.8, 16.2), (16.8, G)), ff=((14.0, 16.4), (14.0, G)),
          hn=((5.4, 16.0), (6.4, 17.5)), hf=((4.0, 16.4), (3.8, 18.2))),
 ]
@@ -402,7 +431,7 @@ def dash_frame(k):
     leg_ = lambda hip, y, kp: [(hip, y), kp[0], kp[1]]
     return terrier([leg_(13.4 + k['st'], hf_, k['fn']), leg_(12.2 + k['st'], hf_, k['ff'])],
                    [leg_(5.6 - k['st'], hh_, k['hn']), leg_(6.4 - k['st'], hh_, k['hf'])],
-                   bob=k['bob'], wag=k['wag'], dash=True, hx=k['hx'], st=k['st'])
+                   bob=k['bob'], wag=k['wag'], dash=True, hx=k['hx'], st=k['st'], pitch=k['pitch'], hy=k['hy'])
 
 
 DASH = []
