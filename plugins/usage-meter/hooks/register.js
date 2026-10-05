@@ -8,7 +8,6 @@ import { BAND_GAP, BAND_NAMES, DOG_COLS, DOG_ROWS, dogCells, makeBand, stateColo
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 66 // 약 15프레임
-const MINI_BAR = 14 // /terry 화면 아래의 작은 게이지 칸 수
 
 const startedAt = Date.now()
 const nowMs = () => Date.now() - startedAt
@@ -260,58 +259,55 @@ export function register(on) {
       })
     }
 
-    // /terry 화면: 강아지가 사용량(5시간) 위치까지 달린다
+    // /terry 화면: 3층 땅. 테리가 서 있는 불꽃 막대 = 5시간, 그 아래 얇은 선 두 줄 = 주간, 대화.
+    // 세 층은 왼쪽 끝과 폭이 같아서 길이로 바로 비교된다. 숫자는 각 층의 오른쪽 끝에 붙는다.
     if (style === 'terry') {
-      // 모델과 추론 강도는 강아지 오른쪽 빈 곳에 세로로 둔다. 자리가 모자라면 아래 줄에 붙인다.
       const name = prettyModel(modelId)
-      const SIDE = cardWidth() + 4
+      const LABEL = 12 // 층 끝에 붙는 '대화 100% !' 자리
+      const SIDE = Math.max(cardWidth(), LABEL) + 3
       const side = name != null && cols - 2 - SIDE >= DOG_COLS + 8
-      const columns = Math.max(DOG_COLS + 8, Math.min(64, cols - 2 - (side ? SIDE : 0)))
+      const columns = Math.max(DOG_COLS + 8, Math.min(60, cols - 2 - (side ? SIDE : LABEL + 1)))
       const pct = vals[0] ?? 0
       runAnim($, e.requestId, 'dog', columns, DOG_ROWS, () => dogCells(columns, values()[0] ?? 0, nowMs(), mode))
-      const dog = Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: dogCells(columns, pct, nowMs(), mode) })
+      const label = i => BAND_NAMES[i] + ' ' + show(vals[i]) + ((vals[i] ?? 0) >= 90 ? ' !' : '')
+      // 얇은 층 한 줄: 쓴 만큼 굵은 선, 나머지 가는 선, 끝에 이름과 숫자
+      const layer = i => {
+        const v = vals[i] ?? 0
+        const filled = v <= 0 ? 0 : Math.max(1, Math.round((Math.min(100, v) / 100) * columns))
+        return Box({
+          key: 'layer' + i,
+          flexDirection: 'row',
+          children: [
+            Text({ key: 'lf' + i, color: stateColor(v), children: ['━'.repeat(filled)] }),
+            Text({ key: 'le' + i, dimColor: true, children: ['─'.repeat(columns - filled)] }),
+            Text({ key: 'll' + i, color: stateColor(v), bold: true, children: [' ' + label(i)] }),
+          ],
+        })
+      }
       return Box({
         flexDirection: 'column',
         children: [
-          side
-            ? Box({
-                key: 'dog-row',
-                flexDirection: 'row',
-                children: [
-                  dog,
-                  Box({
-                    key: 'dog-side',
-                    flexDirection: 'column',
-                    marginLeft: 3,
-                    paddingTop: Math.max(0, Math.floor(DOG_ROWS / 2) - 2),
-                    children: [modelCard(Box, Text, 'dog-card')],
-                  }),
-                ],
-              })
-            : dog,
-          // 강아지가 달리는 위치는 5시간. 주간과 대화는 아래에 작은 게이지로 따로 보여준다
           Box({
-            key: 'dog-main',
+            key: 'dog-row',
             flexDirection: 'row',
             children: [
-              Text({ key: 'dm-label', color: stateColor(pct), bold: true, children: ['5시간 ' + show(vals[0])] }),
-              ...(side ? [] : modelTexts(Text, 'dm-', '   ')),
-              Text({ key: 'dm-hint', dimColor: true, children: ['   (강아지가 달리는 위치 · /flame1 로 불꽃 밴드)'] }),
+              Raster({ key: 'dog', columns, rows: DOG_ROWS, cells: dogCells(columns, pct, nowMs(), mode) }),
+              // 오른쪽: 위에는 모델 카드, 맨 아래 줄(불꽃 막대 높이)에는 5시간 숫자
+              Box({
+                key: 'dog-side',
+                flexDirection: 'column',
+                height: DOG_ROWS,
+                justifyContent: 'space-between',
+                children: [
+                  side ? Box({ key: 'dog-card-wrap', marginLeft: 2, children: [modelCard(Box, Text, 'dog-card')] }) : Text({ key: 'dog-card-none', children: [''] }),
+                  Text({ key: 'l0', color: stateColor(pct), bold: true, children: [' ' + label(0)] }),
+                ],
+              }),
             ],
           }),
-          Box({
-            key: 'dog-sub',
-            flexDirection: 'row',
-            children: [1, 2].flatMap(i => {
-              const v = vals[i]
-              const filled = Math.round(((v ?? 0) / 100) * MINI_BAR)
-              return [
-                Text({ key: 'ds-l' + i, color: stateColor(v ?? 0), children: [BAND_NAMES[i] + ' ' + show(v) + ' '] }),
-                Text({ key: 'ds-f' + i, color: stateColor(v ?? 0), children: ['█'.repeat(filled)] }),
-                Text({ key: 'ds-e' + i, dimColor: true, children: ['░'.repeat(MINI_BAR - filled) + (i === 1 ? '    ' : '')] }),
-              ]
-            }),
-          }),
+          layer(1),
+          layer(2),
+          ...(side ? [] : [Box({ key: 'dog-model', flexDirection: 'row', children: modelTexts(Text, 'dm-', '') })]),
         ],
       })
     }

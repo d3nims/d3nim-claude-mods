@@ -9,12 +9,12 @@ The sprite is drawn on a square grid with 2 pixels per terminal column and 4 per
 can show it as braille (2x4) or quadrant blocks (2x2).
 
 Sets: run (2 frames, legs alternate), pant (standing, tongue out), sleep (lying down).
-Usage: python3 build-terrier.py [--k=1.05] [--coat=blue|liver|sandy] [--preview]
-  --k  size factor: 0.7 is 8 rows, 1.05 (default) about 12 rows, 1.4 about 17 rows. Everything is drawn at that size.
+Usage: python3 build-terrier.py [--k=0.85] [--coat=blue|liver|sandy] [--preview]
+  --k  size factor: 0.7 is 8 rows, 0.85 (default) about 10 rows, 1.05 about 12 rows, 1.4 about 17 rows. Everything is drawn at that size.
 """
 import json, math, sys
 
-K = 1.05
+K = 0.85
 coat = 'blue'
 for a in sys.argv[1:]:
     if a.startswith('--k='):

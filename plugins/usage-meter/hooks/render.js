@@ -291,8 +291,10 @@ export function dogCells(columns, pct, ms, mode) {
   const t = ms / 1000
   const set = pct >= 97 ? SETS.sleep : pct >= 80 ? SETS.pant : SETS.run
   const frame = set.frames[pick(set, ms)]
-  const dogX = Math.round(((TW - SW + 6) * Math.min(100, pct)) / 100) - 4
-  const front = Math.min(TW - 1, dogX + Math.round(SW * 0.3)) // the ground burns up to his hind legs
+  // The fire is the gauge: exactly pct of the width, nothing at 0%. Terry stands with his front paws at its end.
+  const lit = pct <= 0 ? 0 : Math.max(1, Math.round((Math.min(100, pct) / 100) * TW))
+  const front = lit - 1
+  const dogX = Math.max(0, Math.min(TW - SW, lit - Math.round(SW * 0.8)))
   for (let x = 0; x < TW; x++) {
     if (x > front) { if (x % 4 < 2) canvas[ground][x] = [58, 58, 70]; continue }
     const near = 1 - (front - x) / Math.max(16, front)
