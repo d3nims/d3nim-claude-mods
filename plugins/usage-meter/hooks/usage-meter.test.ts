@@ -149,6 +149,19 @@ test('a /model or /effort change shows on the card without waiting for a request
   await ui.unmount()
 })
 
+test('how Terry runs follows the effort: /terry run max flies, /terry run low walks', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  await $.command.run({ command: 'terry', args: 'run max' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /날아가는 중!/ })).toBeDefined()
+  await $.command.run({ command: 'terry', args: 'run low' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /걷는 중/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a surface without Raster still gets the percentages as text', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })

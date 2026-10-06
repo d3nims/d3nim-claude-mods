@@ -333,6 +333,17 @@ export function dogCells(columns, pct, ms, mode) {
 // mood -> which frames: sit (idle), wag (you are typing), bark (you just started typing), run (Claude is working),
 // happy (the answer just landed), sleep (nothing for a while)
 const MOOD_FRAMES = { sit: 'sit', wag: 'wag', bark: 'bark', run: 'run', happy: 'pant', sleep: 'sleep' }
+// How he runs follows the effort level: a walk, a brisk trot, the gallop, a flat-out sprint, and at max he takes off.
+// speed plays the frames faster, ground is how fast the ground slides past (sub-pixels a second).
+export const RUN_STYLES = {
+  low: { set: 'walk', speed: 0.6, ground: 9, lines: 0, len: 0, dust: false },
+  medium: { set: 'trot', speed: 1, ground: 20, lines: 0, len: 0, dust: true },
+  high: { set: 'run', speed: 1, ground: 34, lines: 3, len: 7, dust: true },
+  xhigh: { set: 'run', speed: 1.5, ground: 52, lines: 4, len: 10, dust: true },
+  max: { set: 'run', speed: 2.2, ground: 85, lines: 5, len: 14, dust: false, fly: true },
+}
+export const runStyle = effort => RUN_STYLES[effort] || RUN_STYLES.high
+const FLY_FRAME = 4 // in the run set: the third key pose, stretched flat out in the air
 const SKY_COLS = 12 // room to the right of Terry for the sun, the moon and the stars
 const TRAIL_COLS = 5 // room to the left of Terry for speed lines and dust while he runs
 const SOIL_ROWS = 3 // sub-pixel rows of earth under the grass
@@ -387,14 +398,18 @@ function closeEyes(frame, shut) {
  *  - he stands on grass over earth, which slides past while he runs
  *  - a mark by his head: ! when he barks, * when he is pleased, z Z Z when he sleeps
  */
-export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS) {
+export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high') {
   const TW = columns * 2
   const H = TERRY_ROWS * 4
   const canvas = Array.from({ length: H }, () => Array(TW).fill(null))
   const put = (x, y, c) => { if (x >= 0 && x < TW && y >= 0 && y < H) canvas[y][x] = c }
   const t = ms / 1000
-  const set = SETS[MOOD_FRAMES[mood]] || SETS.sit
-  const frame = closeEyes(set.frames[pick(set, ms)], mood === 'sleep' || isBlinking(ms))
+  const style = runStyle(effort)
+  const running = mood === 'run'
+  const set = (running ? SETS[style.set] : SETS[MOOD_FRAMES[mood]]) || SETS.sit
+  // flying, he holds the stretched-out flight pose of the gallop (legs reaching fore and aft) instead of striding
+  const index = running && style.fly ? FLY_FRAME : pick(set, running ? ms * style.speed : ms)
+  const frame = closeEyes(set.frames[index], mood === 'sleep' || isBlinking(ms))
   const trail = Math.max(1, Math.min(TRAIL_COLS, columns - DOG_COLS - 1))
   const dogX = trail * 2
 
@@ -429,7 +444,7 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS) {
   }
 
   // the ground: a grassy edge on earth with a few pebbles; it slides past while he runs
-  const off = mood === 'run' ? Math.floor(t * 34) : 0 // the ground rushes by while he gallops
+  const off = running ? Math.floor(t * style.ground) : 0 // the ground slides by as fast as he runs
   for (let x = 0; x < TW; x++) {
     const wx = x + off
     for (let k = 1; k <= SOIL_ROWS; k++) {
@@ -441,18 +456,19 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS) {
     if (hash(wx, 8) < 0.12) put(x, ground - 2, GRASS[1])
   }
 
-  // running: speed lines streaking back past him and puffs of dust kicked up behind
-  if (mood === 'run') {
-    // three streaks at back, belly and leg height, sweeping back through the space behind him
-    const lines = [[ground - 17, 0], [ground - 12, 0.4], [ground - 7, 0.75]]
-    for (const [y, phase] of lines) {
-      const len = 7
+  // running: speed lines streaking back past him and puffs of dust kicked up behind (how many follows the effort)
+  if (running && style.lines) {
+    const rowsY = [ground - 17, ground - 12, ground - 7, ground - 21, ground - 3]
+    for (let n = 0; n < style.lines; n++) {
+      const y = rowsY[n] - (style.fly ? 4 : 0)
       const span = dogX + 4
-      const head = dogX + 3 - Math.floor(((t * 4.5 + phase) % 1) * span)
-      for (let k = 0; k < len; k++) put(head - k, y, k < 3 ? [232, 236, 246] : [150, 154, 170])
+      const head = dogX + 3 - Math.floor(((t * 4.5 * style.speed + n * 0.37) % 1) * span)
+      for (let k = 0; k < style.len; k++) put(head - k, y, k < 3 ? [232, 236, 246] : k < 8 ? [150, 154, 170] : [96, 100, 116])
     }
+  }
+  if (running && style.dust) {
     for (let i = 0; i < 3; i++) {
-      const age = (t * 3 + i / 3) % 1 // each puff drifts back and fades over a third of a second
+      const age = (t * 3 * style.speed + i / 3) % 1 // each puff drifts back and fades
       const x = Math.round(dogX + 2 - age * 10 - i)
       const y = ground - 1 - Math.round(age * 2)
       const c = age < 0.5 ? [176, 150, 118] : [120, 104, 86]
@@ -460,12 +476,26 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS) {
       if (age < 0.6) put(x - 1, y, c)
     }
   }
+  // max: he flies, a little above the grass, bobbing, with fading copies of himself trailing behind and his shadow below
+  const lift = running && style.fly ? 5 + Math.round(Math.sin(t * 6)) : 0
+  if (lift) {
+    for (let x = dogX + 8; x < dogX + SW - 10; x++) put(x, ground, [34, 70, 34])
+    // only his back half trails: a copy of the head would land on his own back as a dark hump
+    for (const [dx, fade] of [[-16, 0.86], [-8, 0.7]]) {
+      for (let y = 0; y < frame.length; y++) {
+        for (let x = 0; x < Math.floor(SW * 0.45); x++) {
+          const c = frame[y][x]
+          if (c) put(dogX + dx + x, y - lift, c.map((v, i) => Math.round(v + ([28, 30, 44][i] - v) * fade)))
+        }
+      }
+    }
+  }
 
   // Terry on top
   for (let y = 0; y < frame.length; y++) {
     for (let x = 0; x < SW; x++) {
       const c = frame[y][x]
-      if (c) put(dogX + x, y, c)
+      if (c) put(dogX + x, y - lift, c)
     }
   }
   const cells = canvasToCellList(canvas, columns, TERRY_ROWS, mode)

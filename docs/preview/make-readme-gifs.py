@@ -51,10 +51,12 @@ let ms = 0
 for (const [mood, secs] of story) {
   for (let k = 0; k < Math.round(secs * 1000 / step); k++, ms += step) terry.push({ mood, k, cells: terryCells(mood, ms, 'quad', %d) })
 }
+const efforts = []
+for (let k = 0; k < 36; k++) efforts.push(['low', 'medium', 'high', 'xhigh', 'max'].map(e => terryCells('run', k * step, 'quad', %d, TERRY_COLS, e)))
 const band = makeBand(72, 3, 'quad')
 const flames = []
 for (let k = 0; k < 40; k++) flames.push(band.cells([38, 71, 12], k * step / 1000))
-console.log(JSON.stringify({ terry: { cols: TERRY_COLS, rows: TERRY_ROWS, frames: terry },
+console.log(JSON.stringify({ terry: { cols: TERRY_COLS, rows: TERRY_ROWS, frames: terry }, efforts,
   band: { cols: band.columns, rows: band.rows, widths: band.widths, frames: flames } }))
 """
 
@@ -181,6 +183,27 @@ def terry_gif(data):
     save_gif(frames, os.path.join(OUT, 'terry.gif'))
 
 
+EFFORT_LABELS = [('low', '걷기'), ('medium', '빨리 걷기'), ('high', '달리기'), ('xhigh', '전력 질주'), ('max', '날기')]
+EFFORT_COLOURS = {'low': (138, 143, 152), 'medium': (127, 178, 255), 'high': (199, 146, 234), 'xhigh': (255, 158, 205), 'max': (255, 111, 174)}
+
+
+def effort_gif(frames_by_effort, cols, rows):
+    """Terry running at each effort level, one above the other, the level and its gait on the left."""
+    label_w = 12
+    W, H = (label_w + cols) * CW, len(EFFORT_LABELS) * rows * CH
+    frames = []
+    for row_cells in frames_by_effort:
+        img = Image.new('RGB', (W, H), BG)
+        d = ImageDraw.Draw(img)
+        for n, ((level, gait), packed) in enumerate(zip(EFFORT_LABELS, row_cells)):
+            r0 = n * rows
+            text(d, 1, r0 + rows // 2 - 1, level, EFFORT_COLOURS[level], bold=True)
+            text(d, 1, r0 + rows // 2, gait, DIM)
+            raster(d, label_w, r0, packed, cols, rows)
+        frames.append(img)
+    save_gif(frames, os.path.join(OUT, 'effort.gif'))
+
+
 def flame_gif(data):
     cols, rows, widths = data['cols'], data['rows'], data['widths']
     W, H = (cols + 2 + 14) * CW, (rows + 2) * CH
@@ -205,9 +228,10 @@ def flame_gif(data):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    script = NODE % (json.dumps(RENDER), json.dumps([[m, s] for m, s, _, _ in STORY]), STEP_MS, HOUR)
+    script = NODE % (json.dumps(RENDER), json.dumps([[m, s] for m, s, _, _ in STORY]), STEP_MS, HOUR, HOUR)
     data = json.loads(subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True, check=True).stdout)
     terry_gif(data['terry'])
+    effort_gif(data['efforts'], data['terry']['cols'], data['terry']['rows'])
     flame_gif(data['band'])
 
 

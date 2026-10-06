@@ -4,7 +4,7 @@
 // 뒤에 quad 또는 braille 을 붙이면 그림 방식을 바꿉니다 (예: /terry braille)
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
-import { BAND_GAP, BAND_NAMES, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
+import { BAND_GAP, BAND_NAMES, RUN_STYLES, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 66 // 약 15프레임
@@ -46,6 +46,7 @@ let happyUntil = 0
 let drawnMood = null
 // /terry run 처럼 동작을 골라 잠깐 보여 주는 미리보기 (응답 중이 아니어도 볼 수 있게)
 let previewMood = null
+let previewEffort = null // /terry run max: 미리보기 동안만 그 강도로 달린다
 let previewUntil = 0
 const PREVIEW_MS = 20000
 const previewing = () => previewMood !== null && Date.now() < previewUntil
@@ -69,6 +70,10 @@ function mood() {
   return 'sit'
 }
 const MOOD_SHORT = { sit: '기다리는 중', wag: '보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요' }
+// 달리기는 추론 강도에 따라: low 걷기, medium 빨리 걷기, high 달리기, xhigh 전력 질주, max 날기
+const RUN_TEXT = { low: '걷는 중', medium: '빨리 걷는 중', high: '달리는 중', xhigh: '전력 질주 중', max: '날아가는 중!' }
+const runEffort = () => (previewing() && previewEffort ? previewEffort : effort)
+const moodLabel = (m, short) => (m === 'run' ? RUN_TEXT[runEffort()] ?? RUN_TEXT.high : short ? MOOD_SHORT[m] : MOOD_TEXT[m])
 const MOOD_TEXT = { sit: '앉아서 기다리는 중', wag: '입력하는 걸 보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요 zZ' }
 
 // 이번 요청(턴)의 숫자: 걸린 시간, 토큰, 초당 토큰
@@ -121,6 +126,7 @@ const guide = () =>
     '/terry quad     : 달리는 강아지, 꽉 찬 블록으로 그림',
     '/terry braille  : 달리는 강아지, 점자로 그림',
     '/terry run      : 20초 동안 달리는 모습 미리보기 (sit · wag · bark · happy · sleep 도 됨, stop 으로 끝내기)',
+    '/terry run max  : 추론 강도별 달리기 미리보기 (low 걷기 · medium 빨리 걷기 · high 달리기 · xhigh 전력 질주 · max 날기)',
   ].join('\n')
 
 const LABELS = { five_hour: '5시간', seven_day: '주간', spend_limit: '지출' }
@@ -473,14 +479,16 @@ export function register(on) {
           ].join('\n'),
         }
       }
-      if (name === 'terry' && (arg in PREVIEW_ARGS || arg === 'stop')) {
-        previewMood = arg === 'stop' ? null : PREVIEW_ARGS[arg]
+      const [word, level] = arg.split(/\s+/)
+      if (name === 'terry' && (word in PREVIEW_ARGS || word === 'stop')) {
+        previewMood = word === 'stop' ? null : PREVIEW_ARGS[word]
+        previewEffort = level in RUN_STYLES ? level : null
         previewUntil = arg === 'stop' ? 0 : Date.now() + PREVIEW_MS
         style = 'terry'
         await $.store.set('style', style)
         stopAnim()
         $.ui.invalidate('ui.render')
-        return { text: previewMood ? MOOD_TEXT[previewMood] + ' 모습을 20초 동안 보여 줄게요 (/terry stop 으로 끝내기)' : '미리보기를 끝냈어요' }
+        return { text: previewMood ? moodLabel(previewMood, false) + ' 모습을 20초 동안 보여 줄게요 (/terry stop 으로 끝내기)' : '미리보기를 끝냈어요' }
       }
       if (arg === 'quad' || arg === 'braille') {
         mode = arg
@@ -538,10 +546,10 @@ export function register(on) {
       // 더 좁으면(mini): 테두리 없이 상태 · 모델 · 시간만, 사용량은 막대와 %만
       const tight = sideW < 33
       const mini = beside && sideW < 22
-      runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour(), terryCols))
+      runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour(), terryCols, runEffort()))
       const name = prettyModel(modelId)
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
-      const moodText = (tight ? MOOD_SHORT[m] : MOOD_TEXT[m]) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
+      const moodText = moodLabel(m, tight) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
       const tokenLines = mini ? [] : !t ? [' '] : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
       const showEffort = !mini || visible((name ?? '') + ' · ' + (effort ?? '--')) <= sideW
       const timeText = !t ? (mini ? '요청 없음' : '아직 요청이 없어요') : (working || tight ? '' : '지난 요청 ') + t.time
@@ -596,7 +604,7 @@ export function register(on) {
           })
         }),
       })
-      const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), mode, localHour(), terryCols) })
+      const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), mode, localHour(), terryCols, runEffort()) })
       // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
       if (beside) {
         const side = Box({ key: 'terry-side', flexDirection: 'column', height: TERRY_ROWS, justifyContent: 'space-between', children: [card, usageTable] })

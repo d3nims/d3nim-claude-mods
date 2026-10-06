@@ -36,6 +36,12 @@ claude plugin install usage-meter@d3nim-claude-mods
 
 ![입력하면 짖고 꼬리를 흔들고, 엔터를 치면 응답이 끝날 때까지 달리고, 끝나면 헥헥거리다 조는 테리](docs/images/terry.gif)
 
+### 추론 강도에 따라 달리기가 달라져요
+
+응답하는 동안 테리는 지금 추론 강도(`/effort`)에 맞춰 움직입니다. `/terry run max` 처럼 강도를 붙이면 20초 동안 미리 볼 수 있어요.
+
+![low 걷기, medium 빨리 걷기, high 달리기, xhigh 전력 질주, max 날기](docs/images/effort.gif)
+
 ### `/flame1`
 
 ![5시간 · 주간 · 대화 사용량을 파란 불꽃 높이로 보여 주는 밴드](docs/images/flame1.gif)
@@ -46,6 +52,7 @@ claude plugin install usage-meter@d3nim-claude-mods
 | `/flame1` | 파란 불꽃 사용량 밴드 + 모델 카드 |
 | `/terry` | 입력·응답에 반응하는 베들링턴 테리어, 이번 요청의 시간·토큰 카드, 사용량 표 |
 | `/terry run` | 20초 동안 달리는 모습 미리보기 (`sit` `wag` `bark` `happy` `sleep`, `stop` 으로 끝내기) |
+| `/terry run max` | 추론 강도별 달리기 미리보기 (`low` `medium` `high` `xhigh` `max`) |
 | `/terry quad` · `/terry braille` | 그림 방식 바꾸기 (`/flame1` 도 같음) |
 | `/terry help` | 사용법 |
 
