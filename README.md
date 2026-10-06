@@ -32,6 +32,15 @@ claude plugin install usage-meter@d3nim-claude-mods
 
 프롬프트 위에 5시간 · 주간 · 대화 사용량을 보여 주고, 80% · 90% 에서 알려 줍니다.
 
+### `/terry`
+
+![입력하면 짖고 꼬리를 흔들고, 엔터를 치면 응답이 끝날 때까지 달리고, 끝나면 헥헥거리다 조는 테리](docs/images/terry.gif)
+
+### `/flame1`
+
+![5시간 · 주간 · 대화 사용량을 파란 불꽃 높이로 보여 주는 밴드](docs/images/flame1.gif)
+
+
 | 명령 | 내용 |
 | --- | --- |
 | `/flame1` | 파란 불꽃 사용량 밴드 + 모델 카드 |
