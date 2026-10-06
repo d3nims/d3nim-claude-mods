@@ -361,7 +361,7 @@ const PEBBLE = [150, 146, 136]
 const SUN_DAWN = { core: [255, 196, 170], rim: [246, 128, 150] }
 const SUN_DAY = { core: [255, 232, 110], rim: [255, 190, 64] }
 const SUN_DUSK = { core: [255, 176, 92], rim: [240, 104, 60] }
-const MOON = { core: [238, 236, 218], rim: [190, 188, 172] }
+const MOON = { core: [240, 236, 214], rim: [204, 199, 176] }
 const STAR = [[226, 230, 255], [150, 160, 210]]
 // The sun and the moon, drawn by hand on square pixels: a terminal cell is twice as tall as it is wide, so in quad
 // mode one art pixel is 2 x 2 sub-pixels (a whole quarter-block pair), in braille 1 x 1 dot.
@@ -378,16 +378,26 @@ const SUN_ART = [
   '....r....',
 ]
 const SUN_SMALL = ['..r..', '.ccc.', 'rcccr', '.ccc.', '..r..']
+// The crescent moon is cut from two true circles at twice the sun's horizontal resolution: one moon pixel is one
+// sub-pixel wide and two tall (a single quarter block, half a cell wide), which a round shape this small needs
+// tilted a little (the opening turned 18 degrees up), s: a thin shade along the inner curve, close to the body's colour
+// so a cell that holds both still reads as one
 const MOON_ART = [
-  '..ccs.',
-  '.ccs..',
-  'ccs...',
-  'cc....',
-  'ccs...',
-  '.ccs..',
-  '..ccs.',
+  '...cccss.....',
+  '..cccs.......',
+  '.cccs........',
+  'ccccs........',
+  '.ccccs.......',
+  '..ccccss.....',
+  '...ccccccccss',
 ]
-const MOON_SMALL = ['.ccs', 'ccs.', 'cc..', 'ccs.', '.ccs']
+const MOON_SMALL = [
+  '..ccs...',
+  '.ccs....',
+  'cccs....',
+  '.cccs...',
+  '..cccccc',
+]
 
 // Blinking: about every 4.2 s the eye shuts for 140 ms, and every third time twice in a row. Asleep, it stays shut.
 const BLINK_EVERY = 4200
@@ -466,25 +476,6 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     }
   }
   const look = !isDay ? MOON : hour < 7.5 ? SUN_DAWN : hour >= 16.5 ? SUN_DUSK : SUN_DAY
-  // no room for the sun or the moon in a narrow window (the stars stay)
-  if (skyW >= 10) {
-    const px = mode === 'quad' ? 2 : 1 // one art pixel, in sub-pixels each way
-    const big = skyW >= SUN_ART[0].length * px + 2
-    const art = isDay ? (big ? SUN_ART : SUN_SMALL) : big ? MOON_ART : MOON_SMALL
-    const w = art[0].length * px
-    let left = Math.min(TW - 1 - w, Math.max(skyX0, bx - Math.floor(w / 2)))
-    let top = Math.max(0, by - Math.floor((art.length * px) / 2))
-    left -= left % px // on whole cells' halves, so no art pixel is split across two quad blocks
-    top -= top % px
-    const twinkle = Math.floor(t * 1.6) % 2
-    art.forEach((row, y) => [...row].forEach((ch, x) => {
-      if (ch === '.' || ch === ' ') return
-      if ((ch === 'r' && twinkle) || (ch === 'R' && !twinkle)) return
-      const c = ch === 'c' ? look.core : look.rim
-      for (let i = 0; i < px; i++) for (let k = 0; k < px; k++) put(left + x * px + i, top + y * px + k, c)
-    }))
-  }
-
   // the season, from the real date: snow in winter, petals in spring, fireflies on summer nights, leaves in autumn,
   // fireworks on New Year's Eve and New Year's night
   if (date) {
@@ -532,6 +523,27 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
         }
       }
     }
+  }
+
+  // the sun or the moon, over the season's petals, leaves and snow (none in a narrow window; the stars stay)
+  if (skyW >= 10) {
+    const px = mode === 'quad' ? 2 : 1 // one sun pixel, in sub-pixels each way
+    const big = skyW >= SUN_ART[0].length * px + 2
+    const art = isDay ? (big ? SUN_ART : SUN_SMALL) : big ? MOON_ART : MOON_SMALL
+    const pw = isDay ? px : 1 // the moon's pixels are finer: one sub-pixel wide,
+    const ph = isDay ? px : 2 // two tall
+    const w = art[0].length * pw
+    let left = Math.min(TW - 1 - w, Math.max(skyX0, bx - Math.floor(w / 2)))
+    let top = Math.max(0, by - Math.floor((art.length * ph) / 2))
+    left -= left % pw // on whole quarter blocks, so no art pixel is split across two
+    top -= top % ph
+    const twinkle = Math.floor(t * 1.6) % 2
+    art.forEach((row, y) => [...row].forEach((ch, x) => {
+      if (ch === '.' || ch === ' ') return
+      if ((ch === 'r' && twinkle) || (ch === 'R' && !twinkle)) return
+      const c = ch === 'c' ? look.core : look.rim
+      for (let i = 0; i < pw; i++) for (let k = 0; k < ph; k++) put(left + x * pw + i, top + y * ph + k, c)
+    }))
   }
 
   // the ground: a grassy edge on earth with a few pebbles; it slides past while he runs
