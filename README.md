@@ -56,6 +56,16 @@ export COLORTERM=truecolor
 node docs/preview/terry-view.mjs run --slow=4   # 1~6 키로 동작 바꾸기, q 끝내기
 ```
 
+## jev
+
+입력이 "기존 화면처럼 해 달라"(G-1)나 "직전 결과가 틀렸다"(G-3)인지 로컬 판정기로 0.1초에 가려, Claude 가 기준을 바꾸거나 추측으로 재시도하지 않게 짧은 알림을 넣습니다. Ollama(`bge-m3`)가 필요하고, 처음엔 기록만 하는 shadow 모드로 동작합니다.
+
+```
+/plugin install jev@d3nim-claude-mods
+```
+
+준비·모드·로그는 [`plugins/jev/README.md`](plugins/jev/README.md).
+
 ## 도구
 
 - [`tools/paste-hotkey`](tools/paste-hotkey): SSH 로 붙어 쓰는 Claude Code 에 Alt+V 로 캡처 이미지를 붙여넣기 (SSH 를 여는 쪽 Windows PC 에 설치)
