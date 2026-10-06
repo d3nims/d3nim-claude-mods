@@ -363,6 +363,31 @@ const SUN_DAY = { core: [255, 232, 110], rim: [255, 190, 64] }
 const SUN_DUSK = { core: [255, 176, 92], rim: [240, 104, 60] }
 const MOON = { core: [238, 236, 218], rim: [190, 188, 172] }
 const STAR = [[226, 230, 255], [150, 160, 210]]
+// The sun and the moon, drawn by hand on square pixels: a terminal cell is twice as tall as it is wide, so in quad
+// mode one art pixel is 2 x 2 sub-pixels (a whole quarter-block pair), in braille 1 x 1 dot.
+// c: the body, s: its shaded edge, r / R: the sun's rays, two sets that take turns twinkling
+const SUN_ART = [
+  '....r....',
+  '.R.....R.',
+  '...ccc...',
+  '..ccccc..',
+  'r.ccccc.r',
+  '..ccccc..',
+  '...ccc...',
+  '.R.....R.',
+  '....r....',
+]
+const SUN_SMALL = ['..r..', '.ccc.', 'rcccr', '.ccc.', '..r..']
+const MOON_ART = [
+  '..ccs.',
+  '.ccs..',
+  'ccs...',
+  'cc....',
+  'ccs...',
+  '.ccs..',
+  '..ccs.',
+]
+const MOON_SMALL = ['.ccs', 'ccs.', 'cc..', 'ccs.', '.ccs']
 
 // Blinking: about every 4.2 s the eye shuts for 140 ms, and every third time twice in a row. Asleep, it stays shut.
 const BLINK_EVERY = 4200
@@ -442,16 +467,22 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   }
   const look = !isDay ? MOON : hour < 7.5 ? SUN_DAWN : hour >= 16.5 ? SUN_DUSK : SUN_DAY
   // no room for the sun or the moon in a narrow window (the stars stay)
-  if (skyW >= 8) for (let dy = -3; dy <= 3; dy++) {
-    for (let dx = -3; dx <= 3; dx++) {
-      const d = Math.hypot(dx, dy * 0.9)
-      if (d > 3.1) continue
-      if (!isDay && Math.hypot(dx - 1.6, dy + 0.8) < 2.4) continue // a bite out of the moon: a crescent
-      put(bx + dx, by + dy, d <= 1.9 ? look.core : look.rim)
-    }
-  }
-  if (skyW >= 8 && isDay && Math.sin(t * 2) > -0.2) {
-    for (const [dx, dy] of [[-5, 0], [5, 0], [0, -5], [-4, -4], [4, -4]]) put(bx + dx, by + dy, look.rim)
+  if (skyW >= 10) {
+    const px = mode === 'quad' ? 2 : 1 // one art pixel, in sub-pixels each way
+    const big = skyW >= SUN_ART[0].length * px + 2
+    const art = isDay ? (big ? SUN_ART : SUN_SMALL) : big ? MOON_ART : MOON_SMALL
+    const w = art[0].length * px
+    let left = Math.min(TW - 1 - w, Math.max(skyX0, bx - Math.floor(w / 2)))
+    let top = Math.max(0, by - Math.floor((art.length * px) / 2))
+    left -= left % px // on whole cells' halves, so no art pixel is split across two quad blocks
+    top -= top % px
+    const twinkle = Math.floor(t * 1.6) % 2
+    art.forEach((row, y) => [...row].forEach((ch, x) => {
+      if (ch === '.' || ch === ' ') return
+      if ((ch === 'r' && twinkle) || (ch === 'R' && !twinkle)) return
+      const c = ch === 'c' ? look.core : look.rim
+      for (let i = 0; i < px; i++) for (let k = 0; k < px; k++) put(left + x * px + i, top + y * px + k, c)
+    }))
   }
 
   // the season, from the real date: snow in winter, petals in spring, fireflies on summer nights, leaves in autumn,

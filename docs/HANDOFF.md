@@ -114,6 +114,7 @@ d3nim-claude-mods/
     - 0.8.17: `/model`·`/effort`로 바꿔도 다음 요청까지 카드가 예전 값이던 것 수정. 2초마다 `syncModel`이 `$.session.model()`과 `$.settings.read().effortLevel`을 보고, 바뀌었으면 바로 다시 그림. 설정의 effortLevel은 처음 읽은 값은 요청에서 받은 강도가 없을 때만 쓰고, 그 뒤 바뀌면 새 강도로 씀. 애니메이션 blit 실패가 처리 안 된 오류로 남지 않게 함.
     - 2026-10-06: 동료 tgood2920 을 쓰기 권한 협업자로 초대. main 에 저장소 규칙 'main: PR only'(id 24559193)를 걺: 직접 올리기 · 강제 덮어쓰기 · 삭제 차단, 합치려면 PR 과 승인 1개. 저장소 관리자(d3nims)는 예외라 지금처럼 main 에 바로 올릴 수 있음. 끄기: 저장소 Settings → Rules → Rulesets.
     - 0.9.0: 달리기가 추론 강도를 따름(`RUN_STYLES` in render.js): low 걷기(walk 세트, 0.6배), medium 빨리 걷기(trot), high 달리기(run/DASH), xhigh 전력 질주(run 1.5배, 속도선 4줄), max 날기(뻗은 비행 자세 `FLY_FRAME` 고정, 5±1 서브픽셀 떠서 흔들림, 뒷몸 잔상 2개, 풀밭 그림자, 속도선 5줄). 땅이 흐르는 속도도 강도별. 카드 문구는 `RUN_TEXT`. `/terry run max`처럼 강도를 붙여 미리보기. README 그림 `docs/images/effort.gif` 추가, 뷰어는 `--effort=` 와 `e` 키.
+    - 1.0.1: 해와 달을 손으로 그린 정사각형 픽셀 그림으로 바꿈(`SUN_ART` 9x9 둥근 몸통 + 번갈아 반짝이는 햇살 8개, `MOON_ART` 음영 넣은 초승달). 터미널 칸이 1:2라 quad 에선 그림 한 픽셀 = 2x2 서브픽셀, braille 에선 1x1. 하늘이 좁으면 작은 그림(`SUN_SMALL`, `MOON_SMALL`), 더 좁으면 생략. README 그림 다시 만듦.
     - 1.0.0: (사용자 확인 뒤 올림)
       - max 날기에 슈퍼맨 빨간 망토(어깨에서 꼬리 뒤까지 펄럭임), 구름·바람 줄기. 잔상은 뺌.
       - medium 은 꼬이던 trot 대신 walk 1.5배. `/terry run middle` · `중간` 등 강도 별칭(`EFFORT_ALIASES`).
