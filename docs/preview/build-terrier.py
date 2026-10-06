@@ -199,14 +199,14 @@ def _limb(img, pts, r, c, with_paw, far):
         paw(img, pts[-1][0], pts[-1][1], far)
 
 
-def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False, bark=False, dash=False, hx=0.0, st=0.0, pitch=0.0, hy=0.0):
+def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False, bark=False, dash=False, hx=0.0, st=0.0, pitch=0.0, hy=0.0, raise_paw=0.0):
     global ROT
     """front / hind: [(near leg points), (far leg points)] as lists of (x, y) design units; ignored when lying."""
     img = new()
     if sit:
         # sitting: haunch on the ground, torso rising to a raised chest, front legs straight, head a little higher
         by = 11.4
-        dy = -0.8
+        dy = -0.8 + hy      # hy lowers his head (sad)
         # tail curls up behind him; `wag` swings its tip
         line(img, (4.4, 16.4), (2.4, 17.4), 0.5, 'O')
         line(img, (2.4, 17.4), (1.2 + wag, 15.2), 0.42, 'O')
@@ -219,7 +219,10 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
         ellipse(img, 8.4, 11.9, 3.0, 0.6, 'L', tilt=-0.7, clip=lambda k: k == 'O')         # light along the back
         ellipse(img, 7.4, 15.4, 1.6, 1.0, 'L', clip=lambda k: k == 'O')                    # the round of the thigh
         paw(img, 8.6, G - 0.1)                                                             # hind paw tucked forward
-        limb(img, [(13.0, 12.6), (13.2, 15.8), (13.4, G)], 0.68, 'O')                     # near front leg
+        if raise_paw:   # one front paw raised, asking: the elbow lifts and the paw reaches forward
+            limb(img, [(13.0, 12.6), (14.0 + 1.0 * raise_paw, 14.2 - 0.6 * raise_paw), (15.0 + 2.2 * raise_paw, 13.6 - 1.4 * raise_paw)], 0.68, 'O')
+        else:
+            limb(img, [(13.0, 12.6), (13.2, 15.8), (13.4, G)], 0.68, 'O')                     # near front leg
     else:
         by = (12.4 if not lying else 16.2) - bob        # rib-cage centre height, lifted by `bob` while trotting
         dy = (0.0 if not lying else 6.2) - bob * 0.6 + (2.6 if dash else 0.0) + hy  # head lowered; running, he stretches it out at body height
@@ -253,7 +256,8 @@ def terrier(front, hind, tongue=False, wag=0.0, lying=False, bob=0.0, sit=False,
             limb(img, front[0], 0.68, 'O')
             limb(img, hind[0], 0.68, 'O')
     # long arched neck rising forward from the shoulders, fluffy ruff at the front of the chest
-    nx, ny = hx * 0.6 + st, (dy * 0.45 if dash else 0.0)       # the neck reaches out with the head when he runs
+    # the neck reaches out with the head when he runs, and follows it down when he lowers it to the ground
+    nx, ny = hx * 0.6 + st, (dy * 0.45 if dash else dy * 0.55 if (hy > 2 and not sit) else 0.0)
     ellipse(img, 14.4 + nx, by - 2.8 + ny, 1.9, 3.2, 'O', tilt=-0.62 + (0.35 if dash else 0.0))
     ellipse(img, 15.4 + nx, by - 0.6 + ny * 0.5, 1.1, 2.0, 'm', tilt=-0.25, clip=lambda k: k in BODY)
     ellipse(img, 13.4 + nx, by - 3.6 + ny, 0.9, 1.9, 'L', tilt=-0.62, clip=lambda k: k in BODY)
@@ -449,6 +453,29 @@ for i in range(8):
     GALLOP.append(gallop_frame({key: _mix(a_[key], b_[key], t_) for key in a_}))
 
 PANT = [terrier(STAND_F, STAND_H, tongue=True), terrier(STAND_F, STAND_H, tongue=True, wag=1.0)]
+
+# Claude reads or searches: nose down, he sniffs his way along at a slow walk
+SNIFF = []
+for i in range(6):
+    f, h, bob, wag = trot(i / 6)
+    SNIFF.append(terrier(f, h, bob=bob * 0.4, wag=wag * 0.6, pitch=0.26, hy=6.0 + 0.6 * math.sin(2 * math.pi * i / 3), hx=0.8))
+
+# Claude runs a command or edits a file: nose down at the hole, front paws scraping in turn, hind legs braced
+# (the plugin adds the hole, the dirt flying back and the heap growing behind him)
+DIG_PAWS = [(17.4, G - 0.2), (15.6, G - 1.8), (12.6, G - 0.4), (15.0, G - 2.8)]
+DIG = []
+for i in range(4):
+    near, far = DIG_PAWS[i], DIG_PAWS[(i + 2) % 4]
+    knee = lambda hip, paw: ((hip + paw[0]) / 2 + 0.4, (HF + paw[1]) / 2 - 0.4)
+    front = [[(13.4, HF), knee(13.4, near), near], [(12.2, HF), knee(12.2, far), far]]
+    DIG.append(terrier(front, STAND_H, wag=(1.0 if i % 2 else -1.0), pitch=0.34, hy=7.6 + 0.4 * (i % 2), hx=1.2))
+
+# waiting for a permission: sitting, tail going, waiting on you (the plugin draws a '?' speech bubble by his head)
+ASK = [terrier(None, None, sit=True, wag=0.8), terrier(None, None, sit=True, wag=-0.8)]
+
+# the request failed or was stopped: sitting with his head hung low, bobbing a little as he sniffles
+# (the plugin adds a tear and a rain cloud over him)
+SAD = [terrier(None, None, sit=True, hy=5.6), terrier(None, None, sit=True, hy=6.0)]
 SLEEP = [terrier(None, None, lying=True), terrier(None, None, lying=True, wag=1.0)]
 SIT = [terrier(None, None, sit=True), terrier(None, None, sit=True, wag=0.5)]
 WAG = [terrier(None, None, sit=True, wag=w) for w in (-0.9, 0.0, 0.9, 0.0)]
@@ -473,12 +500,21 @@ def encode(img):
     return rows
 
 
+# the ground line: the lowest row the original poses (walk, gallop, sit, pant, sleep) reach; new poses must stay above it
+GROUND_ROW = max(y for f in RUN + DASH + SIT + PANT + SLEEP + WAG + BARK for y, row in enumerate(f) if any(c != '.' for c in row))
+
+
 def pack(frames, durations):
+    for f in frames:
+        for y in range(GROUND_ROW + 1, CH):
+            if any(c != '.' for c in f[y]):
+                raise SystemExit(f'a frame draws below the ground line (row {y} > {GROUND_ROW}): fix the pose, or every pose floats')
     return {'durations': durations, 'frames': [encode(f) for f in frames]}
 
 
 sets = {'walk': pack(RUN, [80] * len(RUN)), 'run': pack(DASH, [60] * len(DASH)), 'trot': pack(RUN_FAST, [55] * len(RUN_FAST)), 'gallop': pack(GALLOP, [55] * len(GALLOP)), 'pant': pack(PANT, [260, 260]), 'sleep': pack(SLEEP, [700, 700]),
-        'sit': pack(SIT, [900, 900]), 'wag': pack(WAG, [110] * 4), 'bark': pack(BARK, [170, 170, 260])}
+        'sit': pack(SIT, [900, 900]), 'wag': pack(WAG, [110] * 4), 'bark': pack(BARK, [170, 170, 260]),
+        'sniff': pack(SNIFF, [130] * len(SNIFF)), 'dig': pack(DIG, [90] * len(DIG)), 'ask': pack(ASK, [500, 500]), 'sad': pack(SAD, [1200, 1200])}
 assert len(palette) <= len(ALPHABET), len(palette)
 json.dump({'alphabet': ALPHABET, 'palette': palette, 'width': CW, 'height': CH, 'subpixel': True, 'sets': sets},
           open('terrier-frames.json', 'w'), separators=(',', ':'))

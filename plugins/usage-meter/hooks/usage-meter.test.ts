@@ -162,6 +162,36 @@ test('how Terry runs follows the effort: /terry run max flies, /terry run low wa
   await ui.unmount()
 })
 
+test('while Claude reads a file Terry sniffs, and the new poses can be previewed', async ($, on) => {
+  engine(on)
+  let release = () => {}
+  on('tool.call', () => new Promise(r => { release = () => r({ result: 'ok' }) }))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(WIDE as object), isWorking: true } as never })
+  expect(await ui.find({ type: 'Text', text: /달리는 중/ })).toBeDefined()
+  const call = $.tool.call({ tool: 'Read', file_path: '/tmp/a.txt' } as never)
+  await new Promise(r => setTimeout(r, 20))
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /킁킁/ })).toBeDefined()
+  release()
+  await call
+  for (const [word, text] of [['dig', /열심히 파는 중/], ['fetch', /물어 오는 중/], ['ask', /허락을 기다려요/], ['sad', /실패했어요/]] as const) {
+    await $.command.run({ command: 'terry', args: word } as never)
+    await ui.redraw()
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+  }
+  await ui.unmount()
+})
+
+test('/terry stats tells the day so far', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const answer = (await $.command.run({ command: 'terry', args: 'stats' } as never)) as { text: string }
+  expect(answer.text).toMatch(/오늘의 테리/)
+  expect(answer.text).toMatch(/아직 오늘 요청이 없어요/)
+})
+
 test('a surface without Raster still gets the percentages as text', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })

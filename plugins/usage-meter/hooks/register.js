@@ -4,13 +4,25 @@
 // 뒤에 quad 또는 braille 을 붙이면 그림 방식을 바꿉니다 (예: /terry braille)
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
-import { BAND_GAP, BAND_NAMES, RUN_STYLES, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
+import { BAND_GAP, BAND_NAMES, RUN_STYLES, runStyle, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 66 // 약 15프레임
 
 const startedAt = Date.now()
 const nowMs = () => Date.now() - startedAt
+// 지금 동작이 얼마나 이어졌는지 (땅 파기는 오래 팔수록 흙더미가 쌓인다)
+let shownMood = null
+let shownSince = 0
+const today = () => {
+  const d = new Date()
+  const m = mood()
+  if (m !== shownMood) {
+    shownMood = m
+    shownSince = Date.now()
+  }
+  return { month: d.getMonth() + 1, day: d.getDate(), moodMs: Date.now() - shownSince }
+}
 const localHour = () => {
   const d = new Date()
   return d.getHours() + d.getMinutes() / 60
@@ -43,6 +55,20 @@ let lastEdit = 0
 let barkUntil = 0
 let typingUntil = 0
 let happyUntil = 0
+// 응답 중에 Claude 가 쓰는 도구에 따라: 읽기·찾기는 킁킁, 실행·고치기는 땅 파기, 웹은 물어 오기
+const activeTools = new Map() // tool_use_id → 동작
+let activityKind = null
+let activityUntil = 0 // 빨리 끝나는 도구도 잠깐은 보이게
+const ACTIVITY_MS = 2000
+const asking = new Set() // 허락을 기다리는 도구 호출
+let sadUntil = 0 // 요청이 실패하거나 멈추면 잠시 시무룩
+let sadReason = null
+function toolKind(tool) {
+  if (/^(Read|Grep|Glob|LS|NotebookRead|ToolSearch|ListMcpResourcesTool|ReadMcpResource)/.test(tool)) return 'sniff'
+  if (/^(Bash|Edit|Write|MultiEdit|NotebookEdit|PowerShell)/.test(tool)) return 'dig'
+  if (/^(WebFetch|WebSearch)$/.test(tool) || /^mcp__/.test(tool)) return 'fetch'
+  return null // Agent, Task 같은 것: 계속 달린다
+}
 let drawnMood = null
 // /terry run 처럼 동작을 골라 잠깐 보여 주는 미리보기 (응답 중이 아니어도 볼 수 있게)
 let previewMood = null
@@ -57,24 +83,53 @@ const PREVIEW_ARGS = {
   bark: 'bark', 짖기: 'bark',
   happy: 'happy', 헥헥: 'happy',
   sleep: 'sleep', 잠: 'sleep', 졸기: 'sleep',
+  sniff: 'sniff', 킁킁: 'sniff', 냄새: 'sniff',
+  dig: 'dig', 파기: 'dig', 땅파기: 'dig',
+  fetch: 'fetch', 물어오기: 'fetch', 막대기: 'fetch',
+  ask: 'ask', 허락: 'ask', 손: 'ask',
+  sad: 'sad', 시무룩: 'sad', 실패: 'sad',
 }
 
 function mood() {
   const now = Date.now()
   if (previewing()) return previewMood
-  if (working) return 'run'
+  if (working) {
+    if (asking.size) return 'ask'
+    const current = [...activeTools.values()].pop()
+    if (current) return current
+    if (activityKind && now < activityUntil) return activityKind
+    return 'run'
+  }
+  if (now < sadUntil) return 'sad'
   if (now < barkUntil) return 'bark'
   if (now < typingUntil) return 'wag'
   if (now < happyUntil) return 'happy'
   if (now - lastActivity > SLEEP_AFTER) return 'sleep'
   return 'sit'
 }
-const MOOD_SHORT = { sit: '기다리는 중', wag: '보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요' }
+const MOOD_SHORT = {
+  sit: '기다리는 중', wag: '보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요',
+  sniff: '킁킁', dig: '파는 중', fetch: '물어 오는 중', ask: '허락 대기', sad: '시무룩',
+}
 // 달리기는 추론 강도에 따라: low 걷기, medium 빨리 걷기, high 달리기, xhigh 전력 질주, max 날기
 const RUN_TEXT = { low: '걷는 중', medium: '빨리 걷는 중', high: '달리는 중', xhigh: '전력 질주 중', max: '날아가는 중!' }
+// /terry run <강도> 에 쓸 수 있는 이름: 정식 이름 말고도 middle · 중간 같은 말도 받는다
+const EFFORT_ALIASES = {
+  low: 'low', l: 'low', 낮음: 'low', 낮게: 'low', 하: 'low',
+  medium: 'medium', med: 'medium', mid: 'medium', middle: 'medium', m: 'medium', 중간: 'medium', 보통: 'medium', 중: 'medium',
+  high: 'high', h: 'high', 높음: 'high', 높게: 'high', 상: 'high',
+  xhigh: 'xhigh', 'x-high': 'xhigh', xh: 'xhigh', x: 'xhigh', 매우높음: 'xhigh', 아주: 'xhigh',
+  max: 'max', 최대: 'max', 최고: 'max', 끝까지: 'max',
+}
 const runEffort = () => (previewing() && previewEffort ? previewEffort : effort)
-const moodLabel = (m, short) => (m === 'run' ? RUN_TEXT[runEffort()] ?? RUN_TEXT.high : short ? MOOD_SHORT[m] : MOOD_TEXT[m])
-const MOOD_TEXT = { sit: '앉아서 기다리는 중', wag: '입력하는 걸 보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요 zZ' }
+const moodLabel = (m, short) =>
+  m === 'run' ? RUN_TEXT[runEffort()] ?? RUN_TEXT.high
+  : m === 'sad' && !short ? (sadReason === 'aborted' ? '멈췄어요, 시무룩' : '앗, 실패했어요')
+  : short ? MOOD_SHORT[m] : MOOD_TEXT[m]
+const MOOD_TEXT = {
+  sit: '앉아서 기다리는 중', wag: '입력하는 걸 보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요 zZ',
+  sniff: '파일을 킁킁 살피는 중', dig: '열심히 파는 중', fetch: '웹에서 물어 오는 중', ask: '허락을 기다려요!', sad: '앗, 실패했어요',
+}
 
 // 이번 요청(턴)의 숫자: 걸린 시간, 토큰, 초당 토큰
 const blankTurn = () => ({ start: 0, genStart: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, liveChars: 0, end: 0, reason: null })
@@ -110,11 +165,60 @@ function endTurn(reason) {
     return
   }
   working = false
+  activeTools.clear()
+  asking.clear()
+  activityUntil = 0
   turn.end = Date.now()
   turn.reason = reason
   lastTurn = turn
   lastActivity = turn.end
   if (reason === 'answer') happyUntil = turn.end + 3500
+  if (reason === 'error' || reason === 'aborted') {
+    sadUntil = turn.end + 6000
+    sadReason = reason
+  }
+  pendingStats = turn
+}
+
+// 오늘의 기록: 날짜별로 저장소에 쌓는다 (요청 수, 토큰, 가장 오래 걸린 요청, 테리가 달린 거리)
+let pendingStats = null
+const dayKey = () => {
+  const d = new Date()
+  return 'stats:' + d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+}
+const METERS_PER_SUBPIXEL = 0.25 // high 로 달리면 초속 8.5m 쯤
+async function flushStats($) {
+  const t = pendingStats
+  if (!t) return
+  pendingStats = null
+  try {
+    const key = dayKey()
+    const day = (await $.store.get(key)) || { requests: 0, input: 0, output: 0, longest: 0, meters: 0 }
+    const secs = Math.max(0, (t.end - t.start) / 1000)
+    day.requests += 1
+    day.input += t.input + t.cacheRead + t.cacheWrite
+    day.output += t.output + estimate(t.liveChars)
+    day.longest = Math.max(day.longest, secs)
+    day.meters += secs * runStyle(effort).ground * METERS_PER_SUBPIXEL
+    await $.store.set(key, day)
+  } catch (err) {}
+}
+async function statsText($) {
+  const d = new Date()
+  let day = null
+  try {
+    day = await $.store.get(dayKey())
+  } catch (err) {}
+  const head = '오늘의 테리 (' + (d.getMonth() + 1) + '/' + d.getDate() + ')'
+  if (!day || !day.requests) return head + '\n아직 오늘 요청이 없어요. 테리가 쉬는 중이에요.'
+  const dur = s => (s < 60 ? s.toFixed(1) + '초' : Math.floor(s / 60) + '분 ' + Math.round(s % 60) + '초')
+  const dist = m => (m < 1000 ? Math.round(m) + 'm' : (m / 1000).toFixed(1) + 'km')
+  return [
+    head,
+    '요청 ' + day.requests + '번 · 토큰 입력 ' + fmtTokens(day.input) + ' / 출력 ' + fmtTokens(day.output),
+    '가장 오래 걸린 요청 ' + dur(day.longest),
+    '테리가 달린 거리 ' + dist(day.meters),
+  ].join('\n')
 }
 
 // 사용법 안내 (불러올 때 알림창으로, /flame1 help 로도 볼 수 있다). 명령 하나당 한 줄.
@@ -127,6 +231,8 @@ const guide = () =>
     '/terry braille  : 달리는 강아지, 점자로 그림',
     '/terry run      : 20초 동안 달리는 모습 미리보기 (sit · wag · bark · happy · sleep 도 됨, stop 으로 끝내기)',
     '/terry run max  : 추론 강도별 달리기 미리보기 (low 걷기 · medium 빨리 걷기 · high 달리기 · xhigh 전력 질주 · max 날기)',
+    '/terry sniff    : 도구별 동작 미리보기 (sniff 읽기 · dig 실행·고치기 · fetch 웹 · ask 허락 대기 · sad 실패)',
+    '/terry stats    : 오늘의 기록 (요청 수 · 토큰 · 가장 오래 걸린 요청 · 테리가 달린 거리)',
   ].join('\n')
 
 const LABELS = { five_hour: '5시간', seven_day: '주간', spend_limit: '지출' }
@@ -441,9 +547,38 @@ export function register(on) {
   on('turn.complete', async ($, e, next) => {
     if (working && !e.agentId) {
       endTurn(e.reason)
+      await flushStats($)
       $.ui.invalidate('ui.render')
     }
     return next(e)
+  })
+
+  // 도구가 돌아가는 동안 테리가 그 일에 맞춰 움직인다
+  on('tool.call', async ($, e, next) => {
+    const kind = working ? toolKind(e.tool) : null
+    const id = e.tool_use_id ?? e.tool + ':' + Date.now()
+    if (kind) {
+      activeTools.set(id, kind)
+      activityKind = kind
+      activityUntil = Date.now() + ACTIVITY_MS
+      $.ui.invalidate('ui.render')
+    }
+    try {
+      return await next(e)
+    } finally {
+      activeTools.delete(id)
+      if (asking.delete(id)) $.ui.invalidate('ui.render')
+    }
+  })
+
+  // 허락을 물어야 하는 도구면, 답할 때까지 테리가 앞발을 들고 쳐다본다
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+    if (working && verdict && verdict.decision === 'ask' && e.tool_use_id && !e.agentId) {
+      asking.add(e.tool_use_id)
+      $.ui.invalidate('ui.render')
+    }
+    return verdict
   })
 
   // 턴이 끝날 때와 한도 % 가 바뀔 때
@@ -457,6 +592,7 @@ export function register(on) {
     on('command.run', { command: name }, async ($, e) => {
       const arg = e.args.trim().toLowerCase()
       if (arg === 'help' || arg === '?') return { text: guide() }
+      if (name === 'terry' && (arg === 'stats' || arg === '기록' || arg === '오늘')) return { text: await statsText($) }
       if (arg === 'debug') {
         let env = '(읽기 실패)'
         try {
@@ -482,7 +618,7 @@ export function register(on) {
       const [word, level] = arg.split(/\s+/)
       if (name === 'terry' && (word in PREVIEW_ARGS || word === 'stop')) {
         previewMood = word === 'stop' ? null : PREVIEW_ARGS[word]
-        previewEffort = level in RUN_STYLES ? level : null
+        previewEffort = EFFORT_ALIASES[level] ?? null
         previewUntil = arg === 'stop' ? 0 : Date.now() + PREVIEW_MS
         style = 'terry'
         await $.store.set('style', style)
@@ -526,7 +662,10 @@ export function register(on) {
     if (style === 'terry') {
       // 화면이 알려 주는 '응답 중' 표시를 기준으로 맞춘다 (훅을 놓쳐도 달리기가 켜진 채로 남지 않게)
       if (e.props.isWorking === true && !working) startTurn()
-      if (e.props.isWorking === false && working && Date.now() - turn.start > 2500) endTurn('answer')
+      if (e.props.isWorking === false && working && Date.now() - turn.start > 2500) {
+        endTurn('answer')
+        void flushStats($)
+      }
       const m = mood()
       drawnMood = m
       // 폭 나누기: 넓으면 테리(하늘 포함) 옆에 카드·표. 좁아지면 하늘부터 줄여서라도 옆에 둔다. 그래도 모자라면 아래로.
@@ -546,7 +685,7 @@ export function register(on) {
       // 더 좁으면(mini): 테두리 없이 상태 · 모델 · 시간만, 사용량은 막대와 %만
       const tight = sideW < 33
       const mini = beside && sideW < 22
-      runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour(), terryCols, runEffort()))
+      runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour(), terryCols, runEffort(), today()))
       const name = prettyModel(modelId)
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
       const moodText = moodLabel(m, tight) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
@@ -604,7 +743,7 @@ export function register(on) {
           })
         }),
       })
-      const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), mode, localHour(), terryCols, runEffort()) })
+      const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), mode, localHour(), terryCols, runEffort(), today()) })
       // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
       if (beside) {
         const side = Box({ key: 'terry-side', flexDirection: 'column', height: TERRY_ROWS, justifyContent: 'space-between', children: [card, usageTable] })

@@ -53,10 +53,12 @@ for (const [mood, secs] of story) {
 }
 const efforts = []
 for (let k = 0; k < 36; k++) efforts.push(['low', 'medium', 'high', 'xhigh', 'max'].map(e => terryCells('run', k * step, 'quad', %d, TERRY_COLS, e)))
+const actions = []
+for (let k = 0; k < 46; k++) actions.push(['sniff', 'dig', 'fetch', 'ask', 'sad'].map(m => terryCells(m, k * step, 'quad', %d, TERRY_COLS, 'high', { month: 10, day: 6, moodMs: 3000 + k * step })))
 const band = makeBand(72, 3, 'quad')
 const flames = []
 for (let k = 0; k < 40; k++) flames.push(band.cells([38, 71, 12], k * step / 1000))
-console.log(JSON.stringify({ terry: { cols: TERRY_COLS, rows: TERRY_ROWS, frames: terry }, efforts,
+console.log(JSON.stringify({ terry: { cols: TERRY_COLS, rows: TERRY_ROWS, frames: terry }, efforts, actions,
   band: { cols: band.columns, rows: band.rows, widths: band.widths, frames: flames } }))
 """
 
@@ -187,21 +189,29 @@ EFFORT_LABELS = [('low', '걷기'), ('medium', '빨리 걷기'), ('high', '달�
 EFFORT_COLOURS = {'low': (138, 143, 152), 'medium': (127, 178, 255), 'high': (199, 146, 234), 'xhigh': (255, 158, 205), 'max': (255, 111, 174)}
 
 
-def effort_gif(frames_by_effort, cols, rows):
-    """Terry running at each effort level, one above the other, the level and its gait on the left."""
-    label_w = 12
-    W, H = (label_w + cols) * CW, len(EFFORT_LABELS) * rows * CH
+ACTION_LABELS = [('읽기·검색', '킁킁'), ('실행·수정', '땅 파기'), ('웹·MCP', '물어 오기'), ('허락 대기', '말풍선 ?'), ('실패·취소', '시무룩')]
+ACTION_COLOURS = [(127, 178, 255), (214, 150, 90), (155, 224, 138), (255, 209, 102), (138, 143, 152)]
+
+
+def stacked_gif(frames_by_row, cols, rows, labels, colours, name, label_w=12):
+    """One Terry per row, one above the other, a label and a note on the left."""
+    W, H = (label_w + cols) * CW, len(labels) * rows * CH
     frames = []
-    for row_cells in frames_by_effort:
+    for row_cells in frames_by_row:
         img = Image.new('RGB', (W, H), BG)
         d = ImageDraw.Draw(img)
-        for n, ((level, gait), packed) in enumerate(zip(EFFORT_LABELS, row_cells)):
+        for n, ((label, note), colour, packed) in enumerate(zip(labels, colours, row_cells)):
             r0 = n * rows
-            text(d, 1, r0 + rows // 2 - 1, level, EFFORT_COLOURS[level], bold=True)
-            text(d, 1, r0 + rows // 2, gait, DIM)
+            text(d, 1, r0 + rows // 2 - 1, label, colour, bold=True)
+            text(d, 1, r0 + rows // 2, note, DIM)
             raster(d, label_w, r0, packed, cols, rows)
         frames.append(img)
-    save_gif(frames, os.path.join(OUT, 'effort.gif'))
+    save_gif(frames, os.path.join(OUT, name))
+
+
+def effort_gif(frames_by_effort, cols, rows):
+    """Terry running at each effort level, the level and its gait on the left."""
+    stacked_gif(frames_by_effort, cols, rows, EFFORT_LABELS, [EFFORT_COLOURS[l] for l, _ in EFFORT_LABELS], 'effort.gif')
 
 
 def flame_gif(data):
@@ -228,10 +238,11 @@ def flame_gif(data):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    script = NODE % (json.dumps(RENDER), json.dumps([[m, s] for m, s, _, _ in STORY]), STEP_MS, HOUR, HOUR)
+    script = NODE % (json.dumps(RENDER), json.dumps([[m, s] for m, s, _, _ in STORY]), STEP_MS, HOUR, HOUR, 13)
     data = json.loads(subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True, check=True).stdout)
     terry_gif(data['terry'])
     effort_gif(data['efforts'], data['terry']['cols'], data['terry']['rows'])
+    stacked_gif(data['actions'], data['terry']['cols'], data['terry']['rows'], ACTION_LABELS, ACTION_COLOURS, 'actions.gif')
     flame_gif(data['band'])
 
 

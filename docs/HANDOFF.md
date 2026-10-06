@@ -114,6 +114,17 @@ d3nim-claude-mods/
     - 0.8.17: `/model`·`/effort`로 바꿔도 다음 요청까지 카드가 예전 값이던 것 수정. 2초마다 `syncModel`이 `$.session.model()`과 `$.settings.read().effortLevel`을 보고, 바뀌었으면 바로 다시 그림. 설정의 effortLevel은 처음 읽은 값은 요청에서 받은 강도가 없을 때만 쓰고, 그 뒤 바뀌면 새 강도로 씀. 애니메이션 blit 실패가 처리 안 된 오류로 남지 않게 함.
     - 2026-10-06: 동료 tgood2920 을 쓰기 권한 협업자로 초대. main 에 저장소 규칙 'main: PR only'(id 24559193)를 걺: 직접 올리기 · 강제 덮어쓰기 · 삭제 차단, 합치려면 PR 과 승인 1개. 저장소 관리자(d3nims)는 예외라 지금처럼 main 에 바로 올릴 수 있음. 끄기: 저장소 Settings → Rules → Rulesets.
     - 0.9.0: 달리기가 추론 강도를 따름(`RUN_STYLES` in render.js): low 걷기(walk 세트, 0.6배), medium 빨리 걷기(trot), high 달리기(run/DASH), xhigh 전력 질주(run 1.5배, 속도선 4줄), max 날기(뻗은 비행 자세 `FLY_FRAME` 고정, 5±1 서브픽셀 떠서 흔들림, 뒷몸 잔상 2개, 풀밭 그림자, 속도선 5줄). 땅이 흐르는 속도도 강도별. 카드 문구는 `RUN_TEXT`. `/terry run max`처럼 강도를 붙여 미리보기. README 그림 `docs/images/effort.gif` 추가, 뷰어는 `--effort=` 와 `e` 키.
+    - 1.0.0: (사용자 확인 뒤 올림)
+      - max 날기에 슈퍼맨 빨간 망토(어깨에서 꼬리 뒤까지 펄럭임), 구름·바람 줄기. 잔상은 뺌.
+      - medium 은 꼬이던 trot 대신 walk 1.5배. `/terry run middle` · `중간` 등 강도 별칭(`EFFORT_ALIASES`).
+      - 도구별 동작(`tool.call` 훅, `toolKind`): 읽기·검색 sniff(코 박고 킁킁), 실행·수정 dig(고개 숙여 파기, 구멍 · 뒤로 튀는 흙 · 오래 팔수록 커지는 흙더미 `moodMs`), 웹·MCP fetch(달려 나갔다 막대기 물고 돌아옴, 좌우 뒤집기). 최소 2초 표시(`ACTIVITY_MS`).
+      - 허락 대기(`tool.check` 가 ask): 앉아서 꼬리 흔들며 흰 말풍선에 실제 글자 `?`. 오른쪽에 자리 없으면 등 위로.
+      - 실패·취소(`turn.complete` reason error/aborted): 6초 동안 고개 떨구고 눈물 · 비구름. 카드 문구도 구분.
+      - 계절 하늘(`terryCells` 7번째 인자 date): 봄 꽃잎, 여름밤 반딧불, 가을 낙엽, 겨울 눈, 12/31·1/1 밤 불꽃놀이.
+      - `/terry stats`: 날짜별 `$.store` 'stats:YYYY-MM-DD' 에 요청 수 · 토큰 · 최장 요청 · 달린 거리(강도별 땅 속도 × 0.25m).
+      - build-terrier.py 에 안전장치: 어떤 자세도 원래 땅선(38줄) 아래로 그리면 생성이 멈춤(땅이 내려가 모든 자세가 뜨던 사고 방지).
+      - 허락 창이 떠 있는 동안 프롬프트 위 영역이 보이는지는 실제로 확인 못 함.
+      - README 그림 `actions.gif` 추가, 뷰어 키 7~0, -.
     - 저장소에 `tools/paste-hotkey` 추가: SSH 로 붙어 쓰는 Claude Code 에 Alt+V 로 캡처 이미지를 붙여넣는 도구. 원래 ddalkkak 서버용이던 것을 `-Target Linux|Windows|WSL` 로 넓힘. 회사 PC 에 설치해 집 PC(WSL, dcm)로 붙여넣기 확인함.
     - 새 자세: 앉기, 앉아서 꼬리 흔들기, 짖기(입 벌림)를 `build-terrier.py`에 추가(`sit=True`, `bark=True`).
   - 0.6.2: 초기화 시각 표시. 5시간은 `2시간 13분 뒤`, 주간은 `10/9(금) 14시`(한도 정보의 `resetsAt`, 컴퓨터 시간대 기준). flame1은 이름 줄 칸에 자리가 있을 때만 붙이고, terry는 각 층 끝에 `· … 초기화`.

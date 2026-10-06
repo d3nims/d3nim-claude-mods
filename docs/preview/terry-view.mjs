@@ -2,14 +2,17 @@
 // Terry on his own: draws the same picture /terry shows above the prompt, in any terminal, without a request running.
 //
 // Run:   node docs/preview/terry-view.mjs [run|sit|wag|bark|happy|sleep] [--effort=low|medium|high|xhigh|max] [--mode=quad|braille] [--hour=0-23] [--slow=N]
-// Keys:  1 run  2 sit  3 wag  4 bark  5 happy  6 sleep   e next effort (how he runs)   q / Ctrl+C quit
+// Keys:  1 run  2 sit  3 wag  4 bark  5 happy  6 sleep  7 sniff  8 dig  9 fetch  0 ask  - sad
+//        e next effort (how he runs)   q / Ctrl+C quit
 // --slow=4 plays 4x slower, to look at each frame of the gallop.
 
 import { terryCells, TERRY_COLS, TERRY_ROWS } from '../../plugins/usage-meter/hooks/render.js'
 
 const args = process.argv.slice(2)
 const opt = name => args.find(a => a.startsWith('--' + name + '='))?.split('=')[1]
-const MOODS = ['run', 'sit', 'wag', 'bark', 'happy', 'sleep']
+const MOODS = ['run', 'sit', 'wag', 'bark', 'happy', 'sleep', 'sniff', 'dig', 'fetch', 'ask', 'sad']
+const MOOD_KEYS = '1234567890-'
+const started = Date.now()
 let mood = args.find(a => MOODS.includes(a)) ?? 'run'
 const mode = opt('mode') === 'braille' ? 'braille' : 'quad'
 const hour = opt('hour') !== undefined ? Number(opt('hour')) : null
@@ -23,7 +26,7 @@ const ansi = (v, layer) => (v & DEFAULT ? (layer === 38 ? '\x1b[39m' : '\x1b[49m
 
 function draw() {
   const ms = Date.now() / slow
-  const raw = Buffer.from(terryCells(mood, ms, mode, hour ?? new Date().getHours(), TERRY_COLS, effort), 'base64')
+  const raw = Buffer.from(terryCells(mood, ms, mode, hour ?? new Date().getHours(), TERRY_COLS, effort, { month: new Date().getMonth() + 1, day: new Date().getDate(), moodMs: Date.now() - started }), 'base64')
   let out = '\x1b[H'
   for (let y = 0; y < TERRY_ROWS; y++) {
     for (let x = 0; x < TERRY_COLS; x++) {
@@ -32,7 +35,7 @@ function draw() {
     }
     out += '\x1b[0m\n'
   }
-  out += `\n \x1b[1m${mood}${mood === 'run' ? ' · ' + effort : ''}\x1b[0m${slow > 1 ? `  (${slow}x 느리게)` : ''}   1 run  2 sit  3 wag  4 bark  5 happy  6 sleep  e 강도   q 끝내기\x1b[K`
+  out += `\n \x1b[1m${mood}${mood === 'run' ? ' · ' + effort : ''}\x1b[0m${slow > 1 ? `  (${slow}x 느리게)` : ''}   1~6 기본  7 킁킁 8 파기 9 물어오기 0 허락 - 시무룩  e 강도  q 끝내기\x1b[K`
   process.stdout.write(out)
 }
 
@@ -51,9 +54,9 @@ if (process.stdin.isTTY) {
       effort = EFFORTS[(EFFORTS.indexOf(effort) + 1) % EFFORTS.length]
       process.stdout.write('\x1b[2J')
     }
-    const n = Number(k)
-    if (n >= 1 && n <= MOODS.length) {
-      mood = MOODS[n - 1]
+    const n = MOOD_KEYS.indexOf(k)
+    if (n >= 0) {
+      mood = MOODS[n]
       process.stdout.write('\x1b[2J')
     }
   })

@@ -332,15 +332,18 @@ export function dogCells(columns, pct, ms, mode) {
 // ---- Terry reacting to the session ------------------------------------------------------------------------
 // mood -> which frames: sit (idle), wag (you are typing), bark (you just started typing), run (Claude is working),
 // happy (the answer just landed), sleep (nothing for a while)
-const MOOD_FRAMES = { sit: 'sit', wag: 'wag', bark: 'bark', run: 'run', happy: 'pant', sleep: 'sleep' }
+const MOOD_FRAMES = {
+  sit: 'sit', wag: 'wag', bark: 'bark', run: 'run', happy: 'pant', sleep: 'sleep',
+  sniff: 'sniff', dig: 'dig', fetch: 'run', ask: 'ask', sad: 'sad',
+}
 // How he runs follows the effort level: a walk, a brisk trot, the gallop, a flat-out sprint, and at max he takes off.
 // speed plays the frames faster, ground is how fast the ground slides past (sub-pixels a second).
 export const RUN_STYLES = {
   low: { set: 'walk', speed: 0.6, ground: 9, lines: 0, len: 0, dust: false },
-  medium: { set: 'trot', speed: 1, ground: 20, lines: 0, len: 0, dust: true },
+  medium: { set: 'walk', speed: 1.5, ground: 22, lines: 0, len: 0, dust: true }, // the same clean walk as low, brisker (the old trot tangled its steps)
   high: { set: 'run', speed: 1, ground: 34, lines: 3, len: 7, dust: true },
   xhigh: { set: 'run', speed: 1.5, ground: 52, lines: 4, len: 10, dust: true },
-  max: { set: 'run', speed: 2.2, ground: 85, lines: 5, len: 14, dust: false, fly: true },
+  max: { set: 'run', speed: 2.2, ground: 85, lines: 0, len: 0, dust: false, fly: true },
 }
 export const runStyle = effort => RUN_STYLES[effort] || RUN_STYLES.high
 const FLY_FRAME = 4 // in the run set: the third key pose, stretched flat out in the air
@@ -398,7 +401,7 @@ function closeEyes(frame, shut) {
  *  - he stands on grass over earth, which slides past while he runs
  *  - a mark by his head: ! when he barks, * when he is pleased, z Z Z when he sleeps
  */
-export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high') {
+export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high', date = null) {
   const TW = columns * 2
   const H = TERRY_ROWS * 4
   const canvas = Array.from({ length: H }, () => Array(TW).fill(null))
@@ -409,9 +412,17 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   const set = (running ? SETS[style.set] : SETS[MOOD_FRAMES[mood]]) || SETS.sit
   // flying, he holds the stretched-out flight pose of the gallop (legs reaching fore and aft) instead of striding
   const index = running && style.fly ? FLY_FRAME : pick(set, running ? ms * style.speed : ms)
-  const frame = closeEyes(set.frames[index], mood === 'sleep' || isBlinking(ms))
+  let frame = closeEyes(set.frames[index], mood === 'sleep' || isBlinking(ms))
+  // fetching: he runs off to the right, then comes back the other way with a stick in his mouth
+  const fetchPhase = mood === 'fetch' ? (ms / 3200) % 1 : 0
+  const fetchBack = mood === 'fetch' && fetchPhase >= 0.5
+  if (fetchBack) frame = frame.map(row => row.slice().reverse())
   const trail = Math.max(1, Math.min(TRAIL_COLS, columns - DOG_COLS - 1))
-  const dogX = trail * 2
+  const homeX = trail * 2
+  const away = TW - homeX + 6
+  const dogX = mood !== 'fetch' ? homeX
+    : fetchPhase < 0.5 ? homeX + Math.round((fetchPhase / 0.5) * away)
+    : homeX + Math.round((1 - (fetchPhase - 0.5) / 0.5) * away)
 
   // the sky, right of his nose
   const skyX0 = dogX + SW + 1
@@ -443,8 +454,57 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     for (const [dx, dy] of [[-5, 0], [5, 0], [0, -5], [-4, -4], [4, -4]]) put(bx + dx, by + dy, look.rim)
   }
 
+  // the season, from the real date: snow in winter, petals in spring, fireflies on summer nights, leaves in autumn,
+  // fireworks on New Year's Eve and New Year's night
+  if (date) {
+    const { month, day } = date
+    const drift = running ? t * style.ground * 0.4 : 0
+    const wrap = v => ((v % TW) + TW) % TW
+    if (month === 12 || month <= 2) {
+      for (let i = 0; i < 22; i++) {
+        const y = Math.floor((hash(i, 802) * ground + t * (3 + hash(i, 803) * 4)) % (ground - 1))
+        put(Math.floor(wrap(hash(i, 801) * TW + Math.sin(t * 1.3 + i) * 2.5 - drift)), y, [236, 240, 250])
+      }
+    } else if (month <= 5) {
+      for (let i = 0; i < 12; i++) {
+        const y = Math.floor((hash(i, 812) * ground + t * (3 + hash(i, 813) * 2)) % (ground - 1))
+        put(Math.floor(wrap(hash(i, 811) * TW - t * 5 + Math.sin(t * 2 + i) * 3 - drift)), y, i % 3 ? [255, 183, 205] : [255, 214, 226])
+      }
+    } else if (month <= 8) {
+      if (!isDay) {
+        for (let i = 0; i < 7; i++) {
+          if (Math.sin(t * (1.5 + hash(i, 823)) + i * 1.7) < 0.2) continue
+          const x = Math.floor(wrap(hash(i, 821) * TW + Math.sin(t * 0.7 + i) * 6 - drift))
+          put(x, Math.floor(ground - 4 - hash(i, 822) * (ground - 10) + Math.sin(t + i) * 2), [214, 244, 96])
+        }
+      }
+    } else {
+      const LEAVES = [[214, 120, 40], [196, 70, 38], [232, 182, 62]]
+      for (let i = 0; i < 9; i++) {
+        const y = Math.floor((hash(i, 832) * ground + t * (2.5 + hash(i, 833) * 2)) % (ground - 1))
+        const x = Math.floor(wrap(hash(i, 831) * TW + Math.sin(t * 1.6 + i * 2) * 4 - drift))
+        put(x, y, LEAVES[i % 3])
+        if (i % 2) put(x + 1, y, LEAVES[i % 3])
+      }
+    }
+    const newYear = (month === 12 && day === 31) || (month === 1 && day === 1)
+    if (newYear && !isDay) {
+      const FIRE = [[255, 120, 120], [255, 214, 102], [140, 200, 255], [190, 150, 255]]
+      for (let b = 0; b < 2; b++) {
+        const cycle = Math.floor(t / 1.6 + b * 0.5)
+        const age = (t / 1.6 + b * 0.5) % 1
+        const cx = Math.floor(skyX0 + hash(cycle, 841 + b) * Math.max(4, skyW)), cy = 4 + Math.floor(hash(cycle, 851 + b) * 8)
+        const r = age * 7
+        for (let k = 0; k < 8; k++) {
+          const a = (k / 8) * Math.PI * 2
+          if (age < 0.85) put(Math.round(cx + Math.cos(a) * r), Math.round(cy + Math.sin(a) * r * 0.8), FIRE[(cycle + b) % 4])
+        }
+      }
+    }
+  }
+
   // the ground: a grassy edge on earth with a few pebbles; it slides past while he runs
-  const off = running ? Math.floor(t * style.ground) : 0 // the ground slides by as fast as he runs
+  const off = running ? Math.floor(t * style.ground) : mood === 'sniff' ? Math.floor(t * 6) : 0 // the ground slides by as fast as he goes
   for (let x = 0; x < TW; x++) {
     const wx = x + off
     for (let k = 1; k <= SOIL_ROWS; k++) {
@@ -476,18 +536,69 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
       if (age < 0.6) put(x - 1, y, c)
     }
   }
-  // max: he flies, a little above the grass, bobbing, with fading copies of himself trailing behind and his shadow below
+  // max: he flies like a superhero — lifted over his shadow, a red cape streaming back from his shoulders,
+  // wind rushing past above and below and clouds racing by
   const lift = running && style.fly ? 5 + Math.round(Math.sin(t * 6)) : 0
   if (lift) {
-    for (let x = dogX + 8; x < dogX + SW - 10; x++) put(x, ground, [34, 70, 34])
-    // only his back half trails: a copy of the head would land on his own back as a dark hump
-    for (const [dx, fade] of [[-16, 0.86], [-8, 0.7]]) {
-      for (let y = 0; y < frame.length; y++) {
-        for (let x = 0; x < Math.floor(SW * 0.45); x++) {
-          const c = frame[y][x]
-          if (c) put(dogX + dx + x, y - lift, c.map((v, i) => Math.round(v + ([28, 30, 44][i] - v) * fade)))
-        }
+    for (let x = dogX + 10; x < dogX + SW - 12; x++) put(x, ground, [34, 70, 34]) // his shadow on the grass
+    // clouds racing by in the sky
+    for (let i = 0; i < 3; i++) {
+      const cx = TW + 8 - Math.floor(((t * 1.6 + i / 3) % 1) * (TW + 16))
+      const cy = 3 + i * 4
+      const cloud = isDay ? [226, 232, 244] : [74, 78, 98]
+      for (let dx = -3; dx <= 3; dx++) put(cx + dx, cy, cloud)
+      for (let dx = -1; dx <= 2; dx++) put(cx + dx, cy - 1, cloud)
+    }
+    // the cape: a ribbon from his shoulders back past his tail, waving harder toward its free end
+    const ax = dogX + 26
+    const ay = 15 - lift
+    const L = 36
+    for (let u = 0; u <= L; u++) {
+      const k = u / L
+      const wave = Math.sin(u * 0.38 - t * 16) * (0.4 + 2.6 * k)
+      const slope = Math.cos(u * 0.38 - t * 16)
+      const top = Math.round(ay - 1 - u * 0.1 + wave)
+      const thick = Math.round(3 + 4 * k)
+      for (let w = 0; w < thick; w++) {
+        const c = w === 0 ? [244, 92, 96] : slope < -0.3 ? [150, 22, 34] : [214, 38, 48]
+        put(ax - u, top + w, c)
       }
+    }
+  }
+  // wind streaks rushing past at max, the full width of the picture
+  if (running && style.fly) {
+    const rowsY = [ground - 25, ground - 22, ground - 4, ground - 8, ground - 14]
+    for (let n = 0; n < rowsY.length; n++) {
+      const len = 8 + (n % 3) * 3
+      const head = TW + len - Math.floor(((t * (2.4 + n * 0.3) + n * 0.29) % 1) * (TW + 2 * len))
+      for (let k = 0; k < len; k++) put(head + k, rowsY[n], k < 2 ? [236, 240, 250] : k < 6 ? [170, 180, 205] : [104, 110, 134])
+    }
+  }
+
+  // sniffing: little wisps of scent rising from the ground in front of his nose
+  if (mood === 'sniff') {
+    for (let i = 0; i < 3; i++) {
+      const age = (t * 1.2 + i / 3) % 1
+      put(dogX + 46 + Math.round(Math.sin(age * 6 + i) * 1.5), Math.round(ground - 2 - age * 7), [176, 190, 168])
+    }
+  }
+  // digging: a dark hole at his front paws, dirt flung back under him and over his rump, and a heap behind him that
+  // grows the longer he digs (two soil colours only: each terminal cell holds two)
+  if (mood === 'dig') {
+    const SOIL_LIGHT = [140, 100, 62], SOIL_DARK = [104, 74, 46]
+    for (let x = dogX + 27; x <= dogX + 35; x++) put(x, ground, [46, 32, 20])
+    const since = (date && date.moodMs) || ms
+    const heap = Math.min(7, 2 + Math.floor(since / 1500))
+    const hx0 = dogX + 2
+    for (let dx = -heap - 1; dx <= heap + 1; dx++) {
+      const h = Math.floor(Math.max(0, heap - Math.abs(dx) * 0.9))
+      for (let k = 0; k <= h; k++) put(hx0 + dx, ground - k, k === h ? SOIL_LIGHT : SOIL_DARK)
+    }
+    for (let i = 0; i < 5; i++) {
+      const age = (t * 2.2 + i / 5) % 1
+      const x = Math.round(dogX + 30 - age * 28)
+      const y = Math.round(ground - 3 - Math.sin(Math.PI * age) * 14 + age * 2)
+      put(x, y, SOIL_LIGHT)
     }
   }
 
@@ -498,10 +609,48 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
       if (c) put(dogX + x, y - lift, c)
     }
   }
+  if (lift) for (const [x, y] of [[26, 17], [27, 17], [26, 18], [27, 18], [25, 18]]) put(dogX + x, y - lift, [214, 38, 48]) // the cape tied at his neck
+  // the request failed: a tear rolling down from his eye and a little rain cloud just above his drooping head
+  if (mood === 'sad') {
+    let ex = -1, ey = -1
+    frame.forEach((row, y) => row.forEach((c, x) => { if (ey < 0 && c && c[0] === 24 && c[1] === 24 && c[2] === 24) { ex = x; ey = y } }))
+    if (ey >= 0) {
+      const fall = Math.floor(((t * 1.4) % 1) * 6)
+      put(dogX + ex, ey + 2 + fall, [110, 170, 245])
+      if (fall < 5) put(dogX + ex, ey + 3 + fall, [70, 130, 225])
+    }
+    let top = frame.findIndex(row => row.some(c => c))
+    if (top < 0) top = 8
+    const cy = Math.max(2, top - 4)
+    const cx = dogX + 36
+    for (let dx = -5; dx <= 5; dx++) put(cx + dx, cy, [104, 108, 126])
+    for (let dx = -3; dx <= 3; dx++) put(cx + dx, cy - 1, [124, 128, 146])
+    for (let dx = -1; dx <= 1; dx++) put(cx + dx, cy - 2, [124, 128, 146])
+    for (let i = 0; i < 3; i++) {
+      const age = (t * 1.8 + i / 3) % 1
+      put(cx - 4 + i * 4, cy + 1 + Math.floor(age * 3), [120, 166, 236])
+    }
+  }
+  // waiting for a permission: a white speech bubble beside his head, lined up on whole cells so a real '?' fits in it
+  const bubbleCol = Math.ceil((dogX + SW) / 2) + 3 <= columns ? Math.ceil((dogX + SW) / 2) : Math.max(0, Math.floor(dogX / 2) + 4)
+  const bubbleLeft = bubbleCol < Math.ceil((dogX + SW) / 2)
+  if (mood === 'ask') {
+    const bx0 = bubbleCol * 2, W = 6, Hb = 12
+    for (let y = 0; y < Hb; y++) {
+      for (let x = 0; x < W; x++) {
+        const corner = (x === 0 || x === W - 1) && (y === 0 || y === Hb - 1)
+        if (!corner) put(bx0 + x, y, [240, 240, 246])
+      }
+    }
+    for (let k = 0; k < 3; k++) put(bubbleLeft ? bx0 + W + k : bx0 - 1 - k, Hb - 1 + k, [240, 240, 246]) // the bubble's tail, toward his head
+  }
+  // the stick he brings back, held across his mouth
+  if (fetchBack) for (let k = -5; k <= 6; k++) { put(dogX + k, 15, [156, 108, 62]); if (k > -4 && k < 5) put(dogX + k, 16, [118, 80, 44]) }
   const cells = canvasToCellList(canvas, columns, TERRY_ROWS, mode)
   const markX = Math.ceil((dogX + SW) / 2)
   if (mood === 'bark' && Math.floor(ms / 340) % 2 === 0) writeText(cells, columns, markX, 1, '!', 0xffd166)
   if (mood === 'happy' && Math.floor(ms / 300) % 2 === 0) writeText(cells, columns, markX, 0, '*', 0xffd166)
+  if (mood === 'ask' && Math.floor(ms / 600) % 4 !== 3) writeText(cells, columns, bubbleCol + 1, 1, '?', 0x2a2a36)
   if (mood === 'sleep') {
     const phase = Math.floor(ms / 700) % 3
     writeText(cells, columns, markX - 3, 3, 'z', 0x9aa4c8)
