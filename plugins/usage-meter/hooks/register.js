@@ -491,8 +491,9 @@ export function register(on) {
       const m = mood()
       drawnMood = m
       // 폭 나누기: 넓으면 테리(하늘 포함) 옆에 카드·표. 좁아지면 하늘부터 줄여서라도 옆에 둔다. 그래도 모자라면 아래로.
+      // 창을 여러 개 나눠 띄우는 사람도 있어서, 아주 좁아도(옆자리 15칸) 간추려 옆에 둔다.
       const SIDE_FULL = 26
-      const SIDE_MIN = 22
+      const SIDE_MIN = 17
       let terryCols = TERRY_COLS
       let beside = cols - TERRY_COLS - 4 >= SIDE_FULL
       if (!beside && cols - TERRY_MIN_COLS - 4 >= SIDE_MIN) {
@@ -502,18 +503,22 @@ export function register(on) {
       const sideRoom = cols - terryCols - 4
       const gap = sideRoom >= 40 ? 4 : 2
       const sideW = beside ? sideRoom - gap : cols
-      // 좁은 옆자리: 짧은 상태 문구, 토큰을 두 줄로, '지난 요청' 빼기 (카드 폭이 넘쳐 줄이 밀리지 않게)
+      // 좁은 옆자리(tight): 짧은 상태 문구, 토큰을 두 줄로, '지난 요청' 빼기 (카드 폭이 넘쳐 줄이 밀리지 않게)
+      // 더 좁으면(mini): 테두리 없이 상태 · 모델 · 시간만, 사용량은 막대와 %만
       const tight = sideW < 33
+      const mini = beside && sideW < 22
       runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour(), terryCols))
       const name = prettyModel(modelId)
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
       const moodText = (tight ? MOOD_SHORT[m] : MOOD_TEXT[m]) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
-      const tokenLines = !t ? [' '] : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
+      const tokenLines = mini ? [] : !t ? [' '] : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
+      const showEffort = !mini || visible((name ?? '') + ' · ' + (effort ?? '--')) <= sideW
+      const timeText = !t ? (mini ? '요청 없음' : '아직 요청이 없어요') : (working || tight ? '' : '지난 요청 ') + t.time
+      const timeLine = mini && visible(timeText) > sideW ? timeText.split(' · ')[0] : timeText
       const card = Box({
         key: 'terry-card',
         flexDirection: 'column',
-        borderStyle: 'round',
-        borderColor: CARD_BORDER,
+        ...(mini ? {} : { borderStyle: 'round', borderColor: CARD_BORDER }),
         paddingX: tight ? 0 : 1,
         children: [
           Text({ key: 'tc-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' ? '#9be08a' : m === 'bark' ? '#ffd166' : undefined, children: [moodText] }),
@@ -523,19 +528,23 @@ export function register(on) {
             children: name
               ? [
                   Text({ key: 'tc-m', color: MODEL_COLOR, bold: true, children: [name] }),
-                  Text({ key: 'tc-ek', dimColor: true, children: [' · '] }),
-                  Text({ key: 'tc-e', color: effort ? effortColor(effort) : undefined, dimColor: !effort, children: [effort ?? '--'] }),
+                  ...(showEffort
+                    ? [
+                        Text({ key: 'tc-ek', dimColor: true, children: [' · '] }),
+                        Text({ key: 'tc-e', color: effort ? effortColor(effort) : undefined, dimColor: !effort, children: [effort ?? '--'] }),
+                      ]
+                    : []),
                 ]
               : [Text({ key: 'tc-none', dimColor: true, children: ['모델 정보 기다리는 중'] })],
           }),
-          Text({ key: 'tc-time', dimColor: !working, children: [t ? (working || tight ? '' : '지난 요청 ') + t.time : '아직 요청이 없어요'] }),
+          Text({ key: 'tc-time', dimColor: !working, children: [timeLine] }),
           ...tokenLines.map((line, i) => Text({ key: 'tc-tokens' + i, dimColor: true, children: [line] })),
         ],
       })
       // 사용량: 오른쪽 아래에 줄을 맞춘 작은 표 (이름 / 막대 / % / 초기화). 폭이 모자라면 초기화 문구를 뺀다.
       // 막대는 가는 선(━)으로 그려 세 줄 사이에 틈이 생기게 하고, 남는 폭만큼 길게 늘인다.
       const withReset = sideW >= 32
-      const MINI = Math.max(6, Math.min(20, sideW - 11 - (withReset ? 15 : 0)))
+      const MINI = Math.max(4, Math.min(20, sideW - 11 - (withReset ? 15 : 0)))
       const usageTable = Box({
         key: 'terry-usage',
         flexDirection: 'column',

@@ -111,6 +111,20 @@ test('in a narrow window the card and the table stay beside Terry, who gives up 
   await ui.unmount()
 })
 
+test('a very narrow window still keeps a short summary beside Terry', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 50 } as never })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  await ui.redraw()
+  expect(await ui.find({ key: 'terry-row' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^기다리는 중$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^요청 없음$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Opus 5\.5$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^5시간/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a surface without Raster still gets the percentages as text', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })

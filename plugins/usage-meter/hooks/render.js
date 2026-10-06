@@ -338,7 +338,7 @@ const TRAIL_COLS = 5 // room to the left of Terry for speed lines and dust while
 const SOIL_ROWS = 3 // sub-pixel rows of earth under the grass
 export const TERRY_COLS = DOG_COLS + SKY_COLS + TRAIL_COLS
 export const TERRY_ROWS = Math.ceil((ground + 1 + SOIL_ROWS) / 4)
-export const TERRY_MIN_COLS = DOG_COLS + TRAIL_COLS + 1 // a narrow window gives up the sky first
+export const TERRY_MIN_COLS = DOG_COLS + 3 // a narrow window gives up the sky first, then most of the room behind him
 
 // Fixed colours (no gradients), so Raster's ~1000 exact colour pairs are never used up
 const GRASS = [[98, 164, 74], [74, 130, 58]]
@@ -395,7 +395,8 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS) {
   const t = ms / 1000
   const set = SETS[MOOD_FRAMES[mood]] || SETS.sit
   const frame = closeEyes(set.frames[pick(set, ms)], mood === 'sleep' || isBlinking(ms))
-  const dogX = TRAIL_COLS * 2
+  const trail = Math.max(1, Math.min(TRAIL_COLS, columns - DOG_COLS - 1))
+  const dogX = trail * 2
 
   // the sky, right of his nose
   const skyX0 = dogX + SW + 1
