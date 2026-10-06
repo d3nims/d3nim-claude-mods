@@ -55,3 +55,7 @@ export COLORTERM=truecolor
 ```bash
 node docs/preview/terry-view.mjs run --slow=4   # 1~6 키로 동작 바꾸기, q 끝내기
 ```
+
+## 도구
+
+- [`tools/paste-hotkey`](tools/paste-hotkey): SSH 로 붙어 쓰는 Claude Code 에 Alt+V 로 캡처 이미지를 붙여넣기 (SSH 를 여는 쪽 Windows PC 에 설치)
