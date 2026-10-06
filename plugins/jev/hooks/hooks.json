@@ -1,0 +1,16 @@
+{
+  "description": "jev: 사용자 입력이 레퍼런스 지목(G-1)·직전 결과 거부(G-3)인지 로컬 판정",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/jev_prompt_gate.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
