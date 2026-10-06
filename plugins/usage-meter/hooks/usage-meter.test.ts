@@ -97,6 +97,20 @@ test('/terry run shows him running without a request, and /terry stop ends it', 
   await ui.unmount()
 })
 
+test('in a narrow window the card and the table stay beside Terry, who gives up the sky', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 58 } as never })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  await ui.redraw()
+  const dog = (await ui.find({ type: 'Raster', key: 'terry' })) as { props: { columns: number } }
+  expect(dog.props.columns).toBeLessThan(42)
+  expect(await ui.find({ key: 'terry-row' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^기다리는 중$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^주간/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a surface without Raster still gets the percentages as text', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })

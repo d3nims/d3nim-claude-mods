@@ -338,6 +338,7 @@ const TRAIL_COLS = 5 // room to the left of Terry for speed lines and dust while
 const SOIL_ROWS = 3 // sub-pixel rows of earth under the grass
 export const TERRY_COLS = DOG_COLS + SKY_COLS + TRAIL_COLS
 export const TERRY_ROWS = Math.ceil((ground + 1 + SOIL_ROWS) / 4)
+export const TERRY_MIN_COLS = DOG_COLS + TRAIL_COLS + 1 // a narrow window gives up the sky first
 
 // Fixed colours (no gradients), so Raster's ~1000 exact colour pairs are never used up
 const GRASS = [[98, 164, 74], [74, 130, 58]]
@@ -386,8 +387,7 @@ function closeEyes(frame, shut) {
  *  - he stands on grass over earth, which slides past while he runs
  *  - a mark by his head: ! when he barks, * when he is pleased, z Z Z when he sleeps
  */
-export function terryCells(mood, ms, mode, hour = 12) {
-  const columns = TERRY_COLS
+export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS) {
   const TW = columns * 2
   const H = TERRY_ROWS * 4
   const canvas = Array.from({ length: H }, () => Array(TW).fill(null))
@@ -414,7 +414,8 @@ export function terryCells(mood, ms, mode, hour = 12) {
     }
   }
   const look = !isDay ? MOON : hour < 7.5 ? SUN_DAWN : hour >= 16.5 ? SUN_DUSK : SUN_DAY
-  for (let dy = -3; dy <= 3; dy++) {
+  // no room for the sun or the moon in a narrow window (the stars stay)
+  if (skyW >= 8) for (let dy = -3; dy <= 3; dy++) {
     for (let dx = -3; dx <= 3; dx++) {
       const d = Math.hypot(dx, dy * 0.9)
       if (d > 3.1) continue
@@ -422,7 +423,7 @@ export function terryCells(mood, ms, mode, hour = 12) {
       put(bx + dx, by + dy, d <= 1.9 ? look.core : look.rim)
     }
   }
-  if (isDay && Math.sin(t * 2) > -0.2) {
+  if (skyW >= 8 && isDay && Math.sin(t * 2) > -0.2) {
     for (const [dx, dy] of [[-5, 0], [5, 0], [0, -5], [-4, -4], [4, -4]]) put(bx + dx, by + dy, look.rim)
   }
 

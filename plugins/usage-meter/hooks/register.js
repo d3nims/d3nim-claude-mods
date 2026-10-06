@@ -4,7 +4,7 @@
 // 뒤에 quad 또는 braille 을 붙이면 그림 방식을 바꿉니다 (예: /terry braille)
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
-import { BAND_GAP, BAND_NAMES, TERRY_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
+import { BAND_GAP, BAND_NAMES, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 66 // 약 15프레임
@@ -68,6 +68,7 @@ function mood() {
   if (now - lastActivity > SLEEP_AFTER) return 'sleep'
   return 'sit'
 }
+const MOOD_SHORT = { sit: '기다리는 중', wag: '보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요' }
 const MOOD_TEXT = { sit: '앉아서 기다리는 중', wag: '입력하는 걸 보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요 zZ' }
 
 // 이번 요청(턴)의 숫자: 걸린 시간, 토큰, 초당 토큰
@@ -489,17 +490,33 @@ export function register(on) {
       if (e.props.isWorking === false && working && Date.now() - turn.start > 2500) endTurn('answer')
       const m = mood()
       drawnMood = m
-      runAnim($, e.requestId, 'terry', TERRY_COLS, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour()))
+      // 폭 나누기: 넓으면 테리(하늘 포함) 옆에 카드·표. 좁아지면 하늘부터 줄여서라도 옆에 둔다. 그래도 모자라면 아래로.
+      const SIDE_FULL = 26
+      const SIDE_MIN = 22
+      let terryCols = TERRY_COLS
+      let beside = cols - TERRY_COLS - 4 >= SIDE_FULL
+      if (!beside && cols - TERRY_MIN_COLS - 4 >= SIDE_MIN) {
+        beside = true
+        terryCols = Math.max(TERRY_MIN_COLS, cols - 4 - Math.min(34, cols - 4 - TERRY_MIN_COLS))
+      }
+      const sideRoom = cols - terryCols - 4
+      const gap = sideRoom >= 40 ? 4 : 2
+      const sideW = beside ? sideRoom - gap : cols
+      // 좁은 옆자리: 짧은 상태 문구, 토큰을 두 줄로, '지난 요청' 빼기 (카드 폭이 넘쳐 줄이 밀리지 않게)
+      const tight = sideW < 33
+      runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour(), terryCols))
       const name = prettyModel(modelId)
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
+      const moodText = (tight ? MOOD_SHORT[m] : MOOD_TEXT[m]) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
+      const tokenLines = !t ? [' '] : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
       const card = Box({
         key: 'terry-card',
         flexDirection: 'column',
         borderStyle: 'round',
         borderColor: CARD_BORDER,
-        paddingX: 1,
+        paddingX: tight ? 0 : 1,
         children: [
-          Text({ key: 'tc-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' ? '#9be08a' : m === 'bark' ? '#ffd166' : undefined, children: [MOOD_TEXT[m] + (previewing() ? ' · 미리보기' : '')] }),
+          Text({ key: 'tc-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' ? '#9be08a' : m === 'bark' ? '#ffd166' : undefined, children: [moodText] }),
           Box({
             key: 'tc-model',
             flexDirection: 'row',
@@ -511,16 +528,14 @@ export function register(on) {
                 ]
               : [Text({ key: 'tc-none', dimColor: true, children: ['모델 정보 기다리는 중'] })],
           }),
-          Text({ key: 'tc-time', dimColor: !working, children: [t ? (working ? '' : '지난 요청 ') + t.time : '아직 요청이 없어요'] }),
-          Text({ key: 'tc-tokens', dimColor: true, children: [t ? t.tokens : ' '] }),
+          Text({ key: 'tc-time', dimColor: !working, children: [t ? (working || tight ? '' : '지난 요청 ') + t.time : '아직 요청이 없어요'] }),
+          ...tokenLines.map((line, i) => Text({ key: 'tc-tokens' + i, dimColor: true, children: [line] })),
         ],
       })
       // 사용량: 오른쪽 아래에 줄을 맞춘 작은 표 (이름 / 막대 / % / 초기화). 폭이 모자라면 초기화 문구를 뺀다.
       // 막대는 가는 선(━)으로 그려 세 줄 사이에 틈이 생기게 하고, 남는 폭만큼 길게 늘인다.
-      const sideRoom = cols - TERRY_COLS - 4
-      const withReset = sideRoom >= 34
-      const gap = sideRoom >= 40 ? 4 : 2
-      const MINI = Math.max(8, Math.min(20, sideRoom - gap - 11 - (withReset ? 15 : 0)))
+      const withReset = sideW >= 32
+      const MINI = Math.max(6, Math.min(20, sideW - 11 - (withReset ? 15 : 0)))
       const usageTable = Box({
         key: 'terry-usage',
         flexDirection: 'column',
@@ -541,9 +556,9 @@ export function register(on) {
           })
         }),
       })
-      const dog = Raster({ key: 'terry', columns: TERRY_COLS, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), mode, localHour()) })
+      const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), mode, localHour(), terryCols) })
       // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
-      if (sideRoom >= 26) {
+      if (beside) {
         const side = Box({ key: 'terry-side', flexDirection: 'column', height: TERRY_ROWS, justifyContent: 'space-between', children: [card, usageTable] })
         return Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: gap, children: [side] })] })
       }
