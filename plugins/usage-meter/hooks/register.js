@@ -221,6 +221,33 @@ const modelLine = () => {
 // 한글은 두 칸을 차지한다
 const visible = s => [...s].reduce((n, ch) => n + (ch.charCodeAt(0) >= 0xac00 && ch.charCodeAt(0) <= 0xd7a3 ? 2 : 1), 0)
 
+// /model 이나 /effort 로 바꾸면 다음 요청을 기다리지 않고 카드에 바로 반영한다: 2초마다 지금 모델과 설정의 effortLevel 을 본다
+let seenSettingsEffort
+async function syncModel($) {
+  let changed = false
+  try {
+    const m = await $.session.model()
+    if (m && m !== modelId) {
+      modelId = m
+      changed = true
+    }
+  } catch (err) {}
+  try {
+    const level = (await $.settings.read()).effortLevel
+    if (typeof level === 'string' && level && level !== seenSettingsEffort) {
+      const first = seenSettingsEffort === undefined
+      seenSettingsEffort = level
+      // 처음 읽은 값은 요청에서 받은 강도가 없을 때만 쓴다; 그 뒤로 설정이 바뀌면 그것이 새 강도다
+      if ((!first || !effort) && level !== effort) {
+        effort = level
+        effortFrom = '설정 effortLevel'
+        changed = true
+      }
+    }
+  } catch (err) {}
+  return changed
+}
+
 async function refresh($) {
   usage = await $.session.usage()
   try {
@@ -300,7 +327,7 @@ function runAnim($, requestId, key, columns, rows, build) {
       denies += 1
       if (anim && anim.timer === timer) { timer.cancel(); anim = null }
       if (denies <= 4) $.ui.invalidate('ui.render')
-    })
+    }, () => {})
   })
   anim = { id, timer }
 }
@@ -324,6 +351,10 @@ export function register(on) {
     $.clock.every(30000, () => refresh($))
     $.clock.every(1000, () => {
       if (style === 'terry') $.ui.invalidate('ui.render')
+    })
+    await syncModel($)
+    $.clock.every(2000, async () => {
+      if (await syncModel($)) $.ui.invalidate('ui.render')
     })
     await $.ui.toast(guide(), { timeoutMs: 12000 })
     // 터미널이 트루컬러를 알리지 않으면 Claude Code 가 256색으로 줄여 그린다 (테리가 청록색, 흙길이 회색으로 보임)

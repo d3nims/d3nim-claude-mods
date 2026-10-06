@@ -4,14 +4,20 @@ import { expect, mock, test } from 'claude-code/testing'
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80 } as never
 
 // Nothing sits beneath the plugin in a test, so the engine's own answers are given here
+let currentModel = 'claude-opus-5-5'
+let currentEffort = 'high'
 function engine(on: any, five = 38, week = 71) {
+  currentModel = 'claude-opus-5-5'
+  currentEffort = 'high'
   mock.store(on)
-  mock.clock(on)
+  const clock = mock.clock(on)
   mock.env(on, { COLORTERM: 'truecolor' })
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: {} }))
-  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.model', () => ({ value: currentModel }))
+  on('settings.read', () => ({ value: { effortLevel: currentEffort } }))
   on('ui.toast', () => ({ value: {} }))
+  on('ui.blit', () => ({ value: {} }))
   on('session.usage', () => ({
     value: {
       startedAt: 0,
@@ -22,6 +28,7 @@ function engine(on: any, five = 38, week = 71) {
       ],
     },
   }))
+  return clock
 }
 
 test('the band draws three flames and three labels on the terminal', async ($, on) => {
@@ -122,6 +129,23 @@ test('a very narrow window still keeps a short summary beside Terry', async ($, 
   expect(await ui.find({ type: 'Text', text: /^요청 없음$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Opus 5\.5$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^5시간/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a /model or /effort change shows on the card without waiting for a request', async ($, on) => {
+  const clock = engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /^Opus 5\.5$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^high$/ })).toBeDefined()
+  currentModel = 'claude-sonnet-5-5'
+  currentEffort = 'medium'
+  await clock.advance(2100)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /^Sonnet 5\.5$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^medium$/ })).toBeDefined()
   await ui.unmount()
 })
 
