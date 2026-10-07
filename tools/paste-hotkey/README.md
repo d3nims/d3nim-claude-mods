@@ -17,6 +17,17 @@ powershell -ep Bypass -File paste-hotkey-install.ps1 -Server <Host> -Target Wind
 powershell -ep Bypass -File paste-hotkey-install.ps1 -Server <Host>
 ```
 
+### 단축키 두 개로 같이 쓰기
+
+받는 쪽마다 단축키를 따로 설치하면 같이 돕니다. 한 집 PC 에서 WSL 의 Claude Code 와 Windows 의 Claude Code 를 둘 다 쓴다면:
+
+```powershell
+powershell -ep Bypass -File paste-hotkey-install.ps1 -Server <Host> -Target WSL               # Alt+V
+powershell -ep Bypass -File paste-hotkey-install.ps1 -Server <Host> -Target Windows -Key B    # Alt+B
+```
+
+붙여넣을 경로가 Claude 가 도는 곳(WSL 이면 `/mnt/c/...`, Windows 면 `C:\...`)에 따라 달라서, 한 단축키로 둘 다 할 수는 없습니다. 이미지는 둘 다 같은 `pasted-images` 폴더에 쌓입니다.
+
 `<Host>` 는 `~/.ssh/config` 의 이름이나 `사용자@주소` 를 그대로 써도 됩니다. 이미지는 받는 쪽의 `pasted-images` 폴더(Windows 는 `C:\Users\<사용자>\pasted-images`)에 쌓입니다.
 
 ## 쓰기
@@ -26,7 +37,7 @@ Win+Shift+S 로 캡처 → 붙여넣을 창(SSH 터미널) 클릭 → Alt+V
 로그인할 때마다 뒤에서 자동으로 켜집니다. 다시 설치하면 돌고 있던 것을 끄고 새로 켜고, 한 번에 하나만 돕니다.
 
 - 단축키 바꾸기: `-Key B` (Alt+B)
-- 지우기: `-Uninstall`
+- 지우기: `-Uninstall` (그 단축키만, `-Key` 와 같이), `-Uninstall -All` (전부)
 - 기록: `notepad $env:TEMP\ddalkkak-paste.log`
 
 두 `.ps1` 파일은 BOM 있는 UTF-8 + CRLF 로 저장돼 있어야 Windows PowerShell 5.1 이 한글을 읽습니다(저장소의 `.gitattributes` 가 CRLF 를 지킵니다).

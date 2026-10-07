@@ -74,17 +74,26 @@ function Send-Image {
   }
 
   $pasted = "$PasteDir$PasteSep$name"
+  # 클립보드를 비우고 경로 글자만 넣는다. 이미지가 남아 있으면 터미널(WaveTerm 등)이 자기 방식으로 이미지를 붙여 버린다.
+  [System.Windows.Forms.Clipboard]::Clear()
   [System.Windows.Forms.Clipboard]::SetText($pasted)
+  # 클립보드가 정말 그 글자로 바뀐 걸 확인한 뒤에 붙여넣는다 (바뀌기 전에 붙이면 엇갈린다)
+  for ($i = 0; $i -lt 25; $i++) {
+    if ([System.Windows.Forms.Clipboard]::ContainsText() -and -not [System.Windows.Forms.Clipboard]::ContainsImage() -and [System.Windows.Forms.Clipboard]::GetText() -eq $pasted) { break }
+    Start-Sleep -Milliseconds 20
+    [System.Windows.Forms.Clipboard]::SetText($pasted)
+  }
   # Alt 를 뗄 때까지 기다린다. 누른 채로 Ctrl+V 를 보내면 Ctrl+Alt+V 가 된다.
   for ($i = 0; $i -lt 100 -and ([DdkHotkey]::GetAsyncKeyState(0x12) -band 0x8000); $i++) { Start-Sleep -Milliseconds 20 }
+  Start-Sleep -Milliseconds 120
   [System.Windows.Forms.SendKeys]::SendWait("^v")
   Write-Log "올림 ${Server}:$RemoteDir/$name → 붙여넣음 $pasted"
 }
 
 if ($Once) { Send-Image; exit 0 }
 
-# 한 번만 켜져 있게 한다.
-$mutex = New-Object System.Threading.Mutex($false, "Local\DdalkkakPasteHotkey")
+# 단축키마다 하나만 켜져 있게 한다 (Alt+V 와 Alt+B 는 따로 돈다).
+$mutex = New-Object System.Threading.Mutex($false, "Local\DdalkkakPasteHotkey-" + $Key.ToUpper())
 if (-not $mutex.WaitOne(0)) { exit 0 }
 
 $MOD_ALT = 0x1; $MOD_NOREPEAT = 0x4000; $WM_HOTKEY = 0x0312

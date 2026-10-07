@@ -3,39 +3,60 @@
 #   리눅스 서버(예전 그대로):      powershell -ep Bypass -File paste-hotkey-install.ps1 -Server ddalkkak
 #   집 Windows, WSL 의 Claude Code: powershell -ep Bypass -File paste-hotkey-install.ps1 -Server <Host> -Target WSL
 #   집 Windows, Windows 의 Claude Code: ... -Server <Host> -Target Windows
-#   글자 바꾸기:  ... -Key B        (Alt+B)
-#   지우기: ... -Uninstall
+#   단축키:  ... -Key B        (Alt+B). 단축키마다 따로 설치되고 같이 돈다:
+#            예) Alt+V → 집 PC WSL 의 Claude Code,  Alt+B → 집 PC Windows 의 Claude Code
+#   지우기: ... -Uninstall            (그 단축키만)     ... -Uninstall -All   (전부)
 #
 # -Target  Linux   : 원격 ~/pasted-images 에 올리고 /home/.../pasted-images/파일 을 붙여넣는다.
 #          Windows : 원격 %USERPROFILE%\pasted-images 에 올리고 C:\Users\...\pasted-images\파일 을 붙여넣는다.
 #          WSL     : Windows 와 같은 곳에 올리고, WSL 에서 읽는 /mnt/c/Users/.../pasted-images/파일 을 붙여넣는다.
-# 한 번에 하나만 켜진다. 다시 설치하면 돌고 있던 것을 끄고 새로 켠다. 예전 Ctrl+Alt+V 바로 가기가 있으면 지운다.
+# 단축키마다 하나만 켜진다. 같은 단축키로 다시 설치하면 돌고 있던 것을 끄고 새로 켠다(다른 단축키는 건드리지 않음). 예전 Ctrl+Alt+V 바로 가기가 있으면 지운다.
 # 이 파일은 BOM이 있는 UTF-8이어야 한다.
 param(
   [string]$Server = "ddalkkak",
   [ValidateSet("Linux", "Windows", "WSL")][string]$Target = "Linux",
   [string]$Key = "V",
-  [switch]$Uninstall
+  [switch]$Uninstall,
+  [switch]$All
 )
+$Key = $Key.ToUpper()
 
 $dir = Join-Path $env:USERPROFILE "ddalkkak-tools"
 $script = Join-Path $dir "paste-hotkey.ps1"
-$startupLink = Join-Path ([Environment]::GetFolderPath("Startup")) "딸깍 이미지 붙여넣기.lnk"
+$startupDir = [Environment]::GetFolderPath("Startup")
+$startupLink = Join-Path $startupDir "딸깍 이미지 붙여넣기 (Alt+$Key).lnk"
+$legacyLink = Join-Path $startupDir "딸깍 이미지 붙여넣기.lnk"          # 단축키 하나뿐이던 예전 설치
 $oldLink = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs\서버에 이미지 붙여넣기.lnk"
 
-function Stop-Listener {
+function Stop-Listener([string]$Which) {
   Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
-    Where-Object { $_.CommandLine -like "*paste-hotkey.ps1*" } |
+    Where-Object { $_.CommandLine -like "*paste-hotkey.ps1*" -and ($Which -eq "" -or $_.CommandLine -match "-Key\s+$Which(\s|$)") } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 
-Stop-Listener
 Remove-Item $oldLink -ErrorAction SilentlyContinue
+# 예전 한-단축키 설치를 단축키 이름이 붙은 바로 가기로 옮긴다
+if (Test-Path $legacyLink) {
+  $legacy = (New-Object -ComObject WScript.Shell).CreateShortcut($legacyLink)
+  $legacyKey = if ($legacy.Arguments -match "-Key\s+(\w)") { $Matches[1].ToUpper() } else { "V" }
+  $moved = Join-Path $startupDir "딸깍 이미지 붙여넣기 (Alt+$legacyKey).lnk"
+  if (-not (Test-Path $moved)) { Copy-Item $legacyLink $moved }
+  Remove-Item $legacyLink -ErrorAction SilentlyContinue
+}
+
 if ($Uninstall) {
-  Remove-Item $startupLink -ErrorAction SilentlyContinue
-  Write-Host "지웠습니다."
+  if ($All) {
+    Stop-Listener ""
+    Get-ChildItem $startupDir -Filter "딸깍 이미지 붙여넣기*.lnk" | Remove-Item -ErrorAction SilentlyContinue
+    Write-Host "모든 단축키를 지웠습니다."
+  } else {
+    Stop-Listener $Key
+    Remove-Item $startupLink -ErrorAction SilentlyContinue
+    Write-Host "Alt+$Key 를 지웠습니다."
+  }
   exit 0
 }
+Stop-Listener $Key
 
 $source = Join-Path $PSScriptRoot "paste-hotkey.ps1"
 if (-not (Test-Path $source)) { Write-Host "같은 폴더에 paste-hotkey.ps1 이 필요합니다."; exit 1 }
