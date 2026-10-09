@@ -45,7 +45,58 @@ const dist = (a, b) => (a === null && b === null ? 0 : a === null || b === null 
 const lum = c => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
 const isFeature = c => c !== null && lum(c) < 30
 
+// the darkest coat grey in braille: below this a dot on a dark background looks missing, and a shaded patch (the ear,
+// the belly, the far legs) reads as a hole or a dent in him
+const BR_GREY_LO = 168
 function cellOf(units, mode) {
+  // braille: dots only, never a filled cell or a coloured background, so the whole picture reads as one dot texture.
+  // A dot covers little of its cell, so colours are lifted (gamma) to keep them from looking faded. An eye or nose
+  // pixel is left as a gap in the dots rather than lighting the whole cell dark, so the eye stays its real size.
+  if (mode === 'braille') {
+    // Every pixel of the dog lights its dot; the shading is told by the cell's colour alone. (Shading by dot density,
+    // dropping dots where the coat is dark, left holes on a dark background: a dent in the back, a leg one dot thin.)
+    // An eye or nose is left as a gap, its real size; the outline is left out (it showed as dark specks).
+    // A cell holds one colour, so where white fur meets a colour (the open mouth, the tongue, the ear's pink inside)
+    // the cell takes one side, not their average: averaged, the pink spread out pale over the muzzle. The colour
+    // wins with two or more of its dots (or when there is little fur), and the other side's dots stay dark.
+    let featureBits = 0
+    const grey = [], tint = []
+    for (const u of units) {
+      const c = u.color
+      if (!c) continue
+      if (isFeature(c)) {
+        featureBits |= u.bit
+        continue
+      }
+      if (OUTLINE.has(c.join(','))) continue
+      ;(Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]) < 14 ? grey : tint).push(u)
+    }
+    // (only his own reds win so: the tongue, the mouth, a pink ear. A blade of grass or a leaf sharing a cell with him
+    // went the same way and wiped out his dots there: the end of his tail vanished into the grass)
+    const reddish = tint.filter(u => u.color[0] > u.color[1] * 1.25)
+    // (a cell without any of him, the sun or the earth, keeps all its dots)
+    // (and then only when they outnumber his coat in the cell: a cell holds one colour, so the side with more dots
+    // keeps them; on a tie the red wins, a mouth being smaller than the fur around it)
+    const lit = !grey.length ? tint : reddish.length && reddish.length >= grey.length ? reddish : grey
+    let bits = 0
+    let r = 0, g = 0, b = 0, n = 0
+    for (const u of lit) {
+      bits |= u.bit
+      r += u.color[0]; g += u.color[1]; b += u.color[2]; n++
+    }
+    if (!bits && !featureBits) return [0x20, DEFAULT, DEFAULT]
+    if (!bits) return [0x2800 + featureBits, rgbInt([90, 90, 98]), DEFAULT] // only an eye or nose here: a dim outline
+    const mean = [r / n, g / n, b / n]
+    // (a dim fill behind full cells to hide the font's gap between braille rows was tried: it shows as dark blocks)
+    const greyCell = Math.max(...mean) - Math.min(...mean) < 14
+    if (greyCell) {
+      // the coat's greys are squeezed into a lighter range: the darkest shade still reads as fur, not as a hole in it,
+      // while light and shade stay apart (the volume)
+      const v = Math.round(BR_GREY_LO + (255 - BR_GREY_LO) * (mean[0] / 255))
+      return [0x2800 + bits, rgbInt([v, v, Math.min(255, v + 4)]), DEFAULT]
+    }
+    return [0x2800 + bits, rgbInt(mean.map(v => Math.round(255 * Math.pow(v / 255, 0.7)))), DEFAULT]
+  }
   const counts = new Map()
   for (const u of units) {
     const k = u.color ? u.color.join(',') : 'none'
@@ -69,6 +120,54 @@ function cellOf(units, mode) {
   return [code(bitsB), rgbInt(B), rgbInt(A)]
 }
 
+// fine: the full 2 x 4 sub-pixels of a cell, fitted chafa-style. Besides the 2 x 2 quadrants, the lower quarter and
+// three-quarter blocks (▂ ▆, and ▄) give horizontal edges a 4-step precision, and with the colours swapped the upper
+// ones too. Terminals on xterm.js WebGL (WaveTerm) draw all of these themselves, so they tile without seams.
+const FINE_MASKS = (() => {
+  const bit = (dy, dx) => 1 << (dy * 2 + dx)
+  const list = []
+  for (let q = 1; q < 15; q++) {
+    let m = 0
+    if (q & 1) m |= bit(0, 0) | bit(1, 0)
+    if (q & 2) m |= bit(0, 1) | bit(1, 1)
+    if (q & 4) m |= bit(2, 0) | bit(3, 0)
+    if (q & 8) m |= bit(2, 1) | bit(3, 1)
+    list.push([m, QUAD[q].codePointAt(0)])
+  }
+  list.push([bit(3, 0) | bit(3, 1), 0x2582]) // ▂ lower quarter
+  list.push([bit(1, 0) | bit(1, 1) | bit(2, 0) | bit(2, 1) | bit(3, 0) | bit(3, 1), 0x2586]) // ▆ lower three quarters
+  return list
+})()
+const MISS = 200000 // the cost of colouring a pixel that should be empty, or emptying one that should be coloured
+const cost = (a, b) => (a === null && b === null ? 0 : a === null || b === null ? MISS : (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
+function cellOfFine(units) {
+  const counts = new Map()
+  for (const u of units) {
+    const k = u.color ? u.color.join(',') : 'none'
+    counts.set(k, (counts.get(k) || 0) + 1)
+  }
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => (k === 'none' ? null : k.split(',').map(Number)))
+  const feature = ranked.findIndex(isFeature)
+  if (feature > 1) ranked.splice(1, 0, ranked.splice(feature, 1)[0])
+  if (ranked.length === 1) return ranked[0] === null ? [0x20, DEFAULT, DEFAULT] : [0x2588, rgbInt(ranked[0]), DEFAULT]
+  const top = ranked.slice(0, 3)
+  const pairs = []
+  for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) pairs.push([top[i], top[j]])
+  if (feature >= 0) pairs.splice(1) // an eye or nose keeps its place in the first pair
+  let best = null
+  for (const [P, Q] of pairs) {
+    for (const [fg, bg] of [[P, Q], [Q, P]]) {
+      if (fg === null) continue // the foreground must be a colour; an empty background is the terminal's
+      for (const [mask, code] of FINE_MASKS) {
+        let err = 0
+        for (const u of units) err += cost(u.color, mask & u.bit ? fg : bg)
+        if (!best || err < best.err) best = { err, code, fg, bg }
+      }
+    }
+  }
+  return [best.code, rgbInt(best.fg), best.bg === null ? DEFAULT : rgbInt(best.bg)]
+}
+
 /** canvas: rows*4 lines of cols*2 colours (or null). Returns the packed cells for a rows x cols Raster. */
 export function canvasToCells(canvas, cols, rows, mode) {
   return packCells(canvasToCellList(canvas, cols, rows, mode))
@@ -81,8 +180,13 @@ function canvasToCellList(canvas, cols, rows, mode) {
     for (let cx = 0; cx < cols; cx++) {
       const x = cx * 2
       const units = []
+      if (mode === 'fine') {
+        for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) units.push({ bit: 1 << (dy * 2 + dx), color: canvas[r * 4 + dy]?.[x + dx] ?? null })
+        cells.push(cellOfFine(units))
+        continue
+      }
       if (mode === 'braille') {
-        for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) units.push({ bit: BRAILLE_BIT[dy][dx], color: canvas[r * 4 + dy]?.[x + dx] ?? null })
+        for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) units.push({ bit: BRAILLE_BIT[dy][dx], color: canvas[r * 4 + dy]?.[x + dx] ?? null, dy, dx })
       } else {
         for (let qy = 0; qy < 2; qy++) {
           for (let dx = 0; dx < 2; dx++) {
@@ -282,14 +386,35 @@ export function makeBand(cols, flameRows, mode) {
 const hex = h => [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
 const PAL = SPRITE.palette.map(hex)
 const decode = rows => rows.map(row => [...row].map(c => (c === '.' ? null : PAL[SPRITE.alphabet.indexOf(c)])))
+// two styles: 'classic' (drawn here, the default) and 'real' (poses traced from a drawn reference sheet; on hold)
 const SETS = {}
 for (const name of Object.keys(SPRITE.sets)) SETS[name] = { ...SPRITE.sets[name], frames: SPRITE.sets[name].frames.map(decode) }
+const REAL = {}
+for (const name of Object.keys(SPRITE.real || {})) REAL[name] = { ...SPRITE.real[name], frames: SPRITE.real[name].frames.map(decode) }
 const SW = SETS.run.frames[0][0].length // sub-pixel width of the sprite
+// the sprite's soft outline colours: braille leaves them out (as dots they read as dark specks)
+const OUTLINE = new Set((SPRITE.outline || []).map(i => SPRITE.palette[i]).map(h => [0, 2, 4].map(k => parseInt(h.slice(k, k + 2), 16)).join(',')))
 let ground = 0
-for (const set of Object.values(SETS)) for (const f of set.frames) f.forEach((row, y) => { if (row.some(c => c)) ground = Math.max(ground, y) })
+for (const set of [...Object.values(SETS), ...Object.values(REAL)]) for (const f of set.frames) f.forEach((row, y) => { if (row.some(c => c)) ground = Math.max(ground, y) })
+// every pose stands on the grass: a set whose lowest row ends above the ground line is drawn that much lower
+// (the motion inside a set, a bounce or a leap, is kept)
+for (const set of [...Object.values(SETS), ...Object.values(REAL)]) {
+  let bottom = 0
+  for (const f of set.frames) f.forEach((row, y) => { if (row.some(c => c)) bottom = Math.max(bottom, y) })
+  set.drop = ground - bottom
+}
 export const DOG_ROWS = Math.ceil((ground + 1) / 4)
 export const DOG_COLS = Math.ceil(SW / 2)
 
+// the frame at a point (0-1) of one pass through a set, by its frames' own durations (the catch: one pass per throw)
+function frameAt(set, phase) {
+  const total = set.durations.reduce((a, b) => a + b, 0)
+  let t = phase * total
+  for (let i = 0; i < set.durations.length; i++) { if (t < set.durations[i]) return i; t -= set.durations[i] }
+  return set.durations.length - 1
+}
+// where (0-1) in that pass a frame begins
+const frameStart = (set, i) => set.durations.slice(0, i).reduce((a, b) => a + b, 0) / set.durations.reduce((a, b) => a + b, 0)
 function pick(set, ms) {
   const total = set.durations.reduce((a, b) => a + b, 0)
   let m = ms % total
@@ -335,6 +460,31 @@ export function dogCells(columns, pct, ms, mode) {
 const MOOD_FRAMES = {
   sit: 'sit', wag: 'wag', bark: 'bark', run: 'run', happy: 'pant', sleep: 'sleep',
   sniff: 'sniff', dig: 'dig', fetch: 'run', ask: 'ask', sad: 'sad',
+  door: 'door', catch: 'jump', droop: 'droop', stretch: 'stretch', eat: 'eat', pet: 'pet',
+}
+// Little things drawn beside him, on square pixels (2 x 2 sub-pixels in quad mode). Each letter is a colour of `colors`.
+const PROPS = {
+  door: { art: ['dddddd', 'dwwwwd', 'dwppwd', 'dwppwd', 'dwwwwd', 'dwppwd', 'dwppwd', 'dwwwkd', 'dwwwwd', 'dwppwd', 'dwppwd', 'dwwwwd'],
+    colors: { d: [92, 60, 36], w: [152, 102, 62], p: [126, 82, 48], k: [242, 204, 84] } },
+  bowl: { art: ['.fffff.', 'bbbbbbb', '.bbbbb.'], colors: { f: [190, 124, 72], b: [206, 66, 66] } },
+  // (`dots`: the art used in braille, where a prop pixel is one dot and the 2 x 2 art came out too small to see)
+  frisbee: { art: ['.rr.', 'rrrr'], dots: ['..rrrr..', '.rwwwwr.', 'rrrrrrrr', '.rrrrrr.'], colors: { r: [236, 72, 64], w: [255, 150, 140] } },
+  heart: { art: ['h.h', 'hhh', '.h.'], colors: { h: [255, 120, 160] } },
+  pouch: { art: ['.g.g.', '..r..', '.rrr.', 'rrrrr', '.rrr.'], colors: { g: [246, 206, 90], r: [214, 46, 60] } },
+  songpyeon: { art: ['.a..b..c.', 'aaabbbccc'], colors: { a: [250, 196, 210], b: [246, 244, 236], c: [170, 214, 150] } },
+  cake: { art: ['..y..', '..w..', 'ppppp', 'ccccc', 'ccccc'], colors: { y: [255, 200, 80], w: [240, 240, 246], p: [255, 170, 200], c: [214, 160, 110] } },
+}
+// Seollal and Chuseok by the solar date they fall on (the day before to the day after count)
+const HOLIDAYS = {
+  seollal: ['2026-02-17', '2027-02-06', '2028-01-26', '2029-02-13', '2030-02-03'],
+  chuseok: ['2026-09-25', '2027-09-15', '2028-10-03', '2029-09-22', '2030-09-12'],
+}
+export function holidayOf(year, month, day) {
+  const t = Date.UTC(year, month - 1, day)
+  for (const [name, dates] of Object.entries(HOLIDAYS)) {
+    for (const d of dates) if (Math.abs(Date.parse(d + 'T00:00:00Z') - t) <= 86400000) return name
+  }
+  return null
 }
 // How he runs follows the effort level: a walk, a brisk trot, the gallop, a flat-out sprint, and at max he takes off.
 // speed plays the frames faster, ground is how fast the ground slides past (sub-pixels a second).
@@ -346,7 +496,7 @@ export const RUN_STYLES = {
   max: { set: 'run', speed: 2.2, ground: 85, lines: 0, len: 0, dust: false, fly: true },
 }
 export const runStyle = effort => RUN_STYLES[effort] || RUN_STYLES.high
-const FLY_FRAME = 4 // in the run set: the third key pose, stretched flat out in the air
+const FLY_FRAME = 6 // in the run set (two in-betweens per key): key pose 4, stretched flat out in the air
 const SKY_COLS = 12 // room to the right of Terry for the sun, the moon and the stars
 const TRAIL_COLS = 5 // room to the left of Terry for speed lines and dust while he runs
 const SOIL_ROWS = 3 // sub-pixel rows of earth under the grass
@@ -358,9 +508,11 @@ export const TERRY_MIN_COLS = DOG_COLS + 3 // a narrow window gives up the sky f
 const GRASS = [[98, 164, 74], [74, 130, 58]]
 const SOIL = [[110, 80, 50], [88, 63, 39], [128, 94, 60]]
 const PEBBLE = [150, 146, 136]
-const SUN_DAWN = { core: [255, 196, 170], rim: [246, 128, 150] }
-const SUN_DAY = { core: [255, 232, 110], rim: [255, 190, 64] }
-const SUN_DUSK = { core: [255, 176, 92], rim: [240, 104, 60] }
+// the sun in four tones: a pale highlight, the body, a deeper rim, and its rays (one sun pixel is half a cell, so
+// every cell holds at most two of them and the shading comes through whole)
+const SUN_DAWN = { hi: [255, 236, 222], core: [255, 192, 168], rim: [238, 124, 140], ray: [246, 138, 156] }
+const SUN_DAY = { hi: [255, 252, 214], core: [255, 226, 92], rim: [255, 168, 46], ray: [255, 204, 84] }
+const SUN_DUSK = { hi: [255, 222, 164], core: [255, 162, 80], rim: [226, 88, 48], ray: [240, 112, 62] }
 const MOON = { core: [240, 236, 214], rim: [204, 199, 176] }
 const STAR = [[226, 230, 255], [150, 160, 210]]
 // The sun and the moon, drawn by hand on square pixels: a terminal cell is twice as tall as it is wide, so in quad
@@ -369,15 +521,15 @@ const STAR = [[226, 230, 255], [150, 160, 210]]
 const SUN_ART = [
   '....r....',
   '.R.....R.',
-  '...ccc...',
-  '..ccccc..',
-  'r.ccccc.r',
-  '..ccccc..',
-  '...ccc...',
+  '...ooo...',
+  '..ohyyo..',
+  'r.oyyyo.r',
+  '..oyyoo..',
+  '...ooo...',
   '.R.....R.',
   '....r....',
 ]
-const SUN_SMALL = ['..r..', '.ccc.', 'rcccr', '.ccc.', '..r..']
+const SUN_SMALL = ['R.r.R', '.hyo.', 'ryyor', '.yoo.', 'R.r.R']
 // The crescent moon is cut from two true circles at twice the sun's horizontal resolution: one moon pixel is one
 // sub-pixel wide and two tall (a single quarter block, half a cell wide), which a round shape this small needs
 // tilted a little (the opening turned 18 degrees up), s: a thin shade along the inner curve, close to the body's colour
@@ -391,6 +543,22 @@ const MOON_ART = [
   '..ccccss.....',
   '...ccccccccss',
 ]
+// Chuseok's full moon: a true circle at the moon's resolution, with a few soft craters
+const MOON_FULL = (() => {
+  const R = 6.5, W = 14, Hq = 7, cx = W / 2, cy = Hq
+  const craters = [[5.2, 4.6, 1.4], [9.0, 8.4, 1.6], [6.4, 10.2, 1.0]]
+  const rows = []
+  for (let qy = 0; qy < Hq; qy++) {
+    let r = ''
+    for (let x = 0; x < W; x++) {
+      const px = x + 0.5, py = qy * 2 + 1
+      if (Math.hypot(px - cx, py - cy) > R) { r += '.'; continue }
+      r += craters.some(([ax, ay, ar]) => Math.hypot(px - ax, py - ay) <= ar) ? 's' : 'c'
+    }
+    rows.push(r)
+  }
+  return rows
+})()
 const MOON_SMALL = [
   '..ccs...',
   '.ccs....',
@@ -436,22 +604,47 @@ function closeEyes(frame, shut) {
  *  - he stands on grass over earth, which slides past while he runs
  *  - a mark by his head: ! when he barks, * when he is pleased, z Z Z when he sleeps
  */
-export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high', date = null) {
+/** Terry's whole picture as sub-pixel colours (canvas: rows*4 lines of columns*2 [r,g,b] or null) plus the text marks
+ *  drawn over it (! * ? z) in cell coordinates. The terminal turns it into cells; the web view draws it directly. */
+export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high', date = null) {
+
   const TW = columns * 2
   const H = TERRY_ROWS * 4
   const canvas = Array.from({ length: H }, () => Array(TW).fill(null))
   const put = (x, y, c) => { if (x >= 0 && x < TW && y >= 0 && y < H) canvas[y][x] = c }
+  const PX = mode === 'braille' ? 1 : 2
+  // a prop from PROPS with its bottom-left pixel at (left, bottom)
+  const prop = (name, left, bottom) => {
+    const { colors } = PROPS[name]
+    const art = (mode === 'braille' && PROPS[name].dots) || PROPS[name].art
+    const top = bottom - art.length * PX + 1
+    art.forEach((row, y) => [...row].forEach((ch, x) => {
+      if (ch === '.') return
+      for (let i = 0; i < PX; i++) for (let k = 0; k < PX; k++) put(left + x * PX + i, top + y * PX + k, colors[ch])
+    }))
+  }
   const t = ms / 1000
   const style = runStyle(effort)
   const running = mood === 'run'
-  const set = (running ? SETS[style.set] : SETS[MOOD_FRAMES[mood]]) || SETS.sit
+  const sets = date && date.style === 'real' ? { ...SETS, ...REAL } : SETS
+  const set = (running ? sets[style.set] : sets[MOOD_FRAMES[mood]]) || sets.sit
   // flying, he holds the stretched-out flight pose of the gallop (legs reaching fore and aft) instead of striding
-  const index = running && style.fly ? FLY_FRAME : pick(set, running ? ms * style.speed : ms)
-  let frame = closeEyes(set.frames[index], mood === 'sleep' || isBlinking(ms))
+  // catching: crouch while the frisbee comes, leap for it, land with it (the frame follows the throw, not a timer)
+  const throwPhase = mood === 'catch' ? (ms / 1600) % 1 : 0
+  const index = running && style.fly ? FLY_FRAME
+    // (four frames: watching it come, a crouch, the leap held at the top, landed; the older three-frame set has no crouch)
+    : mood === 'catch' && set.catchAt != null ? frameAt(set, throwPhase)
+    : mood === 'catch' ? (set.frames.length >= 4 ? (throwPhase < 0.36 ? 0 : throwPhase < 0.44 ? 1 : throwPhase < 0.82 ? 2 : 3) : throwPhase < 0.42 ? 0 : throwPhase < 0.82 ? 1 : 2)
+    : mood === 'stretch' ? pick(set, date && date.moodMs != null ? date.moodMs : ms) // from the start of the stretch
+    : pick(set, running ? ms * style.speed : ms)
+  const yawning = mood === 'stretch' && index >= 5 && index <= 7 // eyes shut through the yawn
+  let frame = closeEyes(set.frames[index], mood === 'sleep' || yawning || isBlinking(ms))
   // fetching: he runs off to the right, then comes back the other way with a stick in his mouth
   const fetchPhase = mood === 'fetch' ? (ms / 3200) % 1 : 0
   const fetchBack = mood === 'fetch' && fetchPhase >= 0.5
   if (fetchBack) frame = frame.map(row => row.slice().reverse())
+  const mouthAt = set.mouth && set.mouth[index] ? [set.mouth[index][0], set.mouth[index][1] + Math.max(0, set.drop)] : null
+  if (set.drop > 0) frame = [...Array.from({ length: set.drop }, () => Array(SW).fill(null)), ...frame.slice(0, frame.length - set.drop)]
   const trail = Math.max(1, Math.min(TRAIL_COLS, columns - DOG_COLS - 1))
   const homeX = trail * 2
   const away = TW - homeX + 6
@@ -459,8 +652,8 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     : fetchPhase < 0.5 ? homeX + Math.round((fetchPhase / 0.5) * away)
     : homeX + Math.round((1 - (fetchPhase - 0.5) / 0.5) * away)
 
-  // the sky, right of his nose
-  const skyX0 = dogX + SW + 1
+  // the sky, right of his nose (where he stands at home: fetching, he runs past the sun, it doesn't follow him)
+  const skyX0 = homeX + SW + 1
   const skyW = TW - skyX0 - 3
   const isDay = hour >= 6 && hour < 18
   const p = isDay ? (hour - 6) / 12 : ((hour - 18 + 24) % 24) / 12
@@ -482,31 +675,86 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     const { month, day } = date
     const drift = running ? t * style.ground * 0.4 : 0
     const wrap = v => ((v % TW) + TW) % TW
-    if (month === 12 || month <= 2) {
-      for (let i = 0; i < 22; i++) {
-        const y = Math.floor((hash(i, 802) * ground + t * (3 + hash(i, 803) * 4)) % (ground - 1))
-        put(Math.floor(wrap(hash(i, 801) * TW + Math.sin(t * 1.3 + i) * 2.5 - drift)), y, [236, 240, 250])
-      }
-    } else if (month <= 5) {
-      for (let i = 0; i < 12; i++) {
-        const y = Math.floor((hash(i, 812) * ground + t * (3 + hash(i, 813) * 2)) % (ground - 1))
-        put(Math.floor(wrap(hash(i, 811) * TW - t * 5 + Math.sin(t * 2 + i) * 3 - drift)), y, i % 3 ? [255, 183, 205] : [255, 214, 226])
-      }
-    } else if (month <= 8) {
-      if (!isDay) {
-        for (let i = 0; i < 7; i++) {
-          if (Math.sin(t * (1.5 + hash(i, 823)) + i * 1.7) < 0.2) continue
-          const x = Math.floor(wrap(hash(i, 821) * TW + Math.sin(t * 0.7 + i) * 6 - drift))
-          put(x, Math.floor(ground - 4 - hash(i, 822) * (ground - 10) + Math.sin(t + i) * 2), [214, 244, 96])
+    const shape = (x, y, dots, c) => { for (const [dx, dy] of dots) put(x + dx, y + dy, c) }
+    if (mode === 'braille') {
+      // In braille every dot is a pixel, so the season gets shapes: tumbling leaves, star-shaped flakes, spinning
+      // petals, glowing fireflies — the near ones larger and brighter, the far ones single dim dots.
+      const near = i => hash(i, 861) < 0.4
+      const dim = (c, k) => c.map(v => Math.round(v * k))
+      if (month === 12 || month <= 2) {
+        for (let i = 0; i < 26; i++) {
+          const close = near(i)
+          const y = Math.floor((hash(i, 802) * ground + t * (close ? 6 : 3) * (1 + hash(i, 803))) % (ground - 1))
+          const x = Math.floor(wrap(hash(i, 801) * TW + Math.sin(t * 1.3 + i) * 2.5 - drift * (close ? 1.4 : 0.7)))
+          if (close) shape(x, y, [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]], [240, 244, 252])
+          else put(x, y, [180, 186, 200])
+        }
+      } else if (month <= 5) {
+        const PETAL_SPIN = [[[0, 0], [1, 0]], [[0, 0], [1, 1]], [[0, 0], [0, 1]], [[1, 0], [0, 1]]]
+        for (let i = 0; i < 16; i++) {
+          const close = near(i)
+          const y = Math.floor((hash(i, 812) * ground + t * (close ? 4.5 : 2.5)) % (ground - 1))
+          const x = Math.floor(wrap(hash(i, 811) * TW - t * 5 + Math.sin(t * 2 + i) * 3 - drift))
+          const c = i % 3 ? [255, 183, 205] : [255, 214, 226]
+          if (close) shape(x, y, PETAL_SPIN[Math.floor(t * 3 + i) % 4], c)
+          else put(x, y, dim(c, 0.75))
+        }
+      } else if (month <= 8) {
+        if (!isDay) {
+          for (let i = 0; i < 9; i++) {
+            const glow = Math.sin(t * (1.5 + hash(i, 823)) + i * 1.7)
+            if (glow < 0) continue
+            const x = Math.floor(wrap(hash(i, 821) * TW + Math.sin(t * 0.7 + i) * 6 - drift))
+            const y = Math.floor(ground - 4 - hash(i, 822) * (ground - 10) + Math.sin(t + i) * 2)
+            put(x, y, [214, 244, 96])
+            if (glow > 0.6) shape(x, y, [[1, 0], [-1, 0], [0, 1], [0, -1]], [96, 120, 50]) // the glow around it
+          }
+        }
+      } else {
+        // autumn: leaves tumbling as they fall (the shape turns), swaying side to side; a few already on the grass
+        const LEAVES = [[214, 120, 40], [196, 70, 38], [232, 182, 62], [168, 96, 44]]
+        const SPIN = [
+          [[0, 0], [1, 0], [0, 1], [1, 1], [2, 1]],
+          [[0, 0], [1, 0], [1, 1], [2, 1]],
+          [[1, 0], [0, 1], [1, 1], [0, 2]],
+          [[0, 0], [1, 1], [2, 1], [1, 2]],
+        ]
+        for (let i = 0; i < 14; i++) {
+          const close = near(i)
+          const y = Math.floor((hash(i, 832) * ground + t * (close ? 4 : 2.2) * (1 + hash(i, 833) * 0.6)) % (ground - 2))
+          const x = Math.floor(wrap(hash(i, 831) * TW + Math.sin(t * 1.6 + i * 2) * (close ? 5 : 3) - drift * (close ? 1.3 : 0.7)))
+          const c = LEAVES[i % 4]
+          if (close) shape(x, y, SPIN[Math.floor(t * 2.5 + i) % 4], c)
+          else shape(x, y, (Math.floor(t * 2 + i) % 2) ? [[0, 0], [1, 0]] : [[0, 0], [0, 1]], dim(c, 0.7))
         }
       }
     } else {
-      const LEAVES = [[214, 120, 40], [196, 70, 38], [232, 182, 62]]
-      for (let i = 0; i < 9; i++) {
-        const y = Math.floor((hash(i, 832) * ground + t * (2.5 + hash(i, 833) * 2)) % (ground - 1))
-        const x = Math.floor(wrap(hash(i, 831) * TW + Math.sin(t * 1.6 + i * 2) * 4 - drift))
-        put(x, y, LEAVES[i % 3])
-        if (i % 2) put(x + 1, y, LEAVES[i % 3])
+      if (month === 12 || month <= 2) {
+        for (let i = 0; i < 22; i++) {
+          const y = Math.floor((hash(i, 802) * ground + t * (3 + hash(i, 803) * 4)) % (ground - 1))
+          put(Math.floor(wrap(hash(i, 801) * TW + Math.sin(t * 1.3 + i) * 2.5 - drift)), y, [236, 240, 250])
+        }
+      } else if (month <= 5) {
+        for (let i = 0; i < 12; i++) {
+          const y = Math.floor((hash(i, 812) * ground + t * (3 + hash(i, 813) * 2)) % (ground - 1))
+          put(Math.floor(wrap(hash(i, 811) * TW - t * 5 + Math.sin(t * 2 + i) * 3 - drift)), y, i % 3 ? [255, 183, 205] : [255, 214, 226])
+        }
+      } else if (month <= 8) {
+        if (!isDay) {
+          for (let i = 0; i < 7; i++) {
+            if (Math.sin(t * (1.5 + hash(i, 823)) + i * 1.7) < 0.2) continue
+            const x = Math.floor(wrap(hash(i, 821) * TW + Math.sin(t * 0.7 + i) * 6 - drift))
+            put(x, Math.floor(ground - 4 - hash(i, 822) * (ground - 10) + Math.sin(t + i) * 2), [214, 244, 96])
+          }
+        }
+      } else {
+        const LEAVES = [[214, 120, 40], [196, 70, 38], [232, 182, 62]]
+        for (let i = 0; i < 9; i++) {
+          const y = Math.floor((hash(i, 832) * ground + t * (2.5 + hash(i, 833) * 2)) % (ground - 1))
+          const x = Math.floor(wrap(hash(i, 831) * TW + Math.sin(t * 1.6 + i * 2) * 4 - drift))
+          put(x, y, LEAVES[i % 3])
+          if (i % 2) put(x + 1, y, LEAVES[i % 3])
+        }
       }
     }
     const newYear = (month === 12 && day === 31) || (month === 1 && day === 1)
@@ -526,10 +774,11 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   }
 
   // the sun or the moon, over the season's petals, leaves and snow (none in a narrow window; the stars stay)
-  if (skyW >= 10) {
-    const px = mode === 'quad' ? 2 : 1 // one sun pixel, in sub-pixels each way
+  // (not while the '?' bubble is up: it sits in the same patch of sky)
+  if (skyW >= 10 && mood !== 'ask' && mood !== 'door') {
+    const px = mode === 'braille' ? 1 : 2 // one sun pixel, in sub-pixels each way
     const big = skyW >= SUN_ART[0].length * px + 2
-    const art = isDay ? (big ? SUN_ART : SUN_SMALL) : big ? MOON_ART : MOON_SMALL
+    const art = isDay ? (big ? SUN_ART : SUN_SMALL) : date && date.holiday === 'chuseok' ? MOON_FULL : big ? MOON_ART : MOON_SMALL
     const pw = isDay ? px : 1 // the moon's pixels are finer: one sub-pixel wide,
     const ph = isDay ? px : 2 // two tall
     const w = art[0].length * pw
@@ -541,7 +790,7 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     art.forEach((row, y) => [...row].forEach((ch, x) => {
       if (ch === '.' || ch === ' ') return
       if ((ch === 'r' && twinkle) || (ch === 'R' && !twinkle)) return
-      const c = ch === 'c' ? look.core : look.rim
+      const c = ch === 'h' ? look.hi : ch === 'c' || ch === 'y' ? look.core : ch === 'r' || ch === 'R' ? look.ray || look.rim : look.rim
       for (let i = 0; i < pw; i++) for (let k = 0; k < ph; k++) put(left + x * pw + i, top + y * ph + k, c)
     }))
   }
@@ -557,7 +806,17 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     put(x, ground, GRASS[(wx >> 1) & 1])
     if (hash(wx, 7) < 0.4) put(x, ground - 1, GRASS[wx & 1])
     if (hash(wx, 8) < 0.12) put(x, ground - 2, GRASS[1])
+  }  // braille: what the season leaves on the grass — settled snow, fallen leaves (they slide by with the ground)
+  if (date && mode === 'braille') {
+    const slide = running ? Math.floor(t * style.ground) : 0
+    const { month } = date
+    if (month === 12 || month <= 2) for (let x = 0; x < TW; x++) { if (hash(x + slide, 871) < 0.4) put(x, ground - 1, [226, 230, 240]) }
+    else if (month >= 9 && month <= 11) {
+      const FALLEN = [[214, 120, 40], [196, 70, 38], [232, 182, 62], [168, 96, 44]]
+      for (let x = 0; x < TW; x++) if (hash(x + slide, 881) < 0.08) put(x, ground - 1, FALLEN[(x + slide) % 4])
+    }
   }
+
 
   // running: speed lines streaking back past him and puffs of dust kicked up behind (how many follows the effort)
   if (running && style.lines) {
@@ -581,8 +840,12 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   }
   // max: he flies like a superhero — lifted over his shadow, a red cape streaming back from his shoulders,
   // wind rushing past above and below and clouds racing by
-  const lift = running && style.fly ? 5 + Math.round(Math.sin(t * 6)) : 0
-  if (lift) {
+  // a test passed: a frisbee sails in from the right, he leaps for it and lands with it in his mouth
+  const catchPhase = mood === 'catch' ? (ms / 1600) % 1 : 0
+  // (the traced leap is already drawn in the air, up to the top of the picture: it gets no extra hop)
+  const hop = mood === 'catch' && !set.mouth && set.catchAt == null && catchPhase >= 0.42 && catchPhase < 0.82 ? Math.round(Math.sin((Math.PI * (catchPhase - 0.42)) / 0.4) * 1) : 0 // (the leap pose is already up in the air: lifted more, his head went off the top)
+  const lift = running && style.fly ? 5 + Math.round(Math.sin(t * 6)) : hop
+  if (lift && running && style.fly) {
     for (let x = dogX + 10; x < dogX + SW - 12; x++) put(x, ground, [34, 70, 34]) // his shadow on the grass
     // clouds racing by in the sky
     for (let i = 0; i < 3; i++) {
@@ -645,6 +908,22 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     }
   }
 
+  // props beside him: the door he waits at, his dinner bowl, holiday things, the anniversary cake
+  const right = dogX + SW + 1
+  if (mood === 'door') prop('door', right, ground)
+  if (mood === 'eat') {
+    // the bowl under his nose: the front-most of his pixels in the rows just above the ground
+    let nose = 30
+    frame.forEach((row, y) => { if (y >= ground - 10) row.forEach((c, x) => { if (c && x > nose) nose = x }) })
+    prop('bowl', dogX + nose - (mode === 'braille' ? 6 : 8), ground)
+  }
+  const idle = mood === 'sit' || mood === 'wag' || mood === 'bark' || mood === 'sleep' || mood === 'happy' || mood === 'pet'
+  if (date && idle) {
+    if (date.anniversary) prop('cake', right, ground)
+    else if (date.holiday === 'seollal') prop('pouch', right, ground)
+    else if (date.holiday === 'chuseok') prop('songpyeon', right, ground)
+  }
+
   // Terry on top
   for (let y = 0; y < frame.length; y++) {
     for (let x = 0; x < SW; x++) {
@@ -652,9 +931,9 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
       if (c) put(dogX + x, y - lift, c)
     }
   }
-  if (lift) for (const [x, y] of [[26, 17], [27, 17], [26, 18], [27, 18], [25, 18]]) put(dogX + x, y - lift, [214, 38, 48]) // the cape tied at his neck
+  if (running && style.fly) for (const [x, y] of [[26, 17], [27, 17], [26, 18], [27, 18], [25, 18]]) put(dogX + x, y - lift, [214, 38, 48]) // the cape tied at his neck
   // the request failed: a tear rolling down from his eye and a little rain cloud just above his drooping head
-  if (mood === 'sad') {
+  if (mood === 'sad' || mood === 'droop') {
     let ex = -1, ey = -1
     frame.forEach((row, y) => row.forEach((c, x) => { if (ey < 0 && c && c[0] === 24 && c[1] === 24 && c[2] === 24) { ex = x; ey = y } }))
     if (ey >= 0) {
@@ -675,30 +954,80 @@ export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     }
   }
   // waiting for a permission: a white speech bubble beside his head, lined up on whole cells so a real '?' fits in it
-  const bubbleCol = Math.ceil((dogX + SW) / 2) + 3 <= columns ? Math.ceil((dogX + SW) / 2) : Math.max(0, Math.floor(dogX / 2) + 4)
-  const bubbleLeft = bubbleCol < Math.ceil((dogX + SW) / 2)
+  // waiting for a permission: a rounded white speech bubble beside his head, lined up on whole cells so a real '?' fits
+  // in its middle; to the right of his head when there is room, otherwise over his back
+  const BW = 5 // cells
+  const rightCol = Math.ceil((dogX + SW) / 2)
+  const bubbleCol = rightCol + BW <= columns ? rightCol : Math.max(0, Math.floor(dogX / 2) + 2)
+  const bubbleLeft = bubbleCol < rightCol
   if (mood === 'ask') {
-    const bx0 = bubbleCol * 2, W = 6, Hb = 12
-    for (let y = 0; y < Hb; y++) {
-      for (let x = 0; x < W; x++) {
-        const corner = (x === 0 || x === W - 1) && (y === 0 || y === Hb - 1)
-        if (!corner) put(bx0 + x, y, [240, 240, 246])
+    const bx0 = bubbleCol * 2, W = BW * 2, Hb = 12
+    const inset = y => (y === 0 || y === Hb - 1 ? 2 : y === 1 || y === Hb - 2 ? 1 : 0) // rounded corners
+    const inside = (x, y) => y >= 0 && y < Hb && x >= inset(y) && x < W - inset(y)
+    if (mode === 'braille') {
+      // in dots a filled bubble can't hold a letter (a cell is dots or text), so the bubble is drawn as its outline
+      // and the '?' in dots inside it
+      for (let y = 0; y < Hb; y++) for (let x = 0; x < W; x++) {
+        const edge = !(inside(x - 1, y) && inside(x + 1, y) && inside(x, y - 1) && inside(x, y + 1))
+        if (inside(x, y)) put(bx0 + x, y, edge ? [240, 240, 246] : null) // (inside it, no snow or petals)
       }
+      // a bold '?', two dots thick, so it still reads through the font's gaps between braille rows
+      const Q = ['.####.', '##..##', '....##', '...##.', '..##..', '..##..', '......', '..##..']
+      if (Math.floor(ms / 600) % 4 !== 3) Q.forEach((row, y) => [...row].forEach((c, x) => { if (c === '#') put(bx0 + 2 + x, 2 + y, [255, 214, 102]) }))
+    } else for (let y = 0; y < Hb; y++) for (let x = inset(y); x < W - inset(y); x++) put(bx0 + x, y, [240, 240, 246])
+    // the tail, a little hook toward his head
+    const tail = bubbleLeft ? [[W - 2, Hb], [W - 1, Hb], [W, Hb + 1], [W + 1, Hb + 2]] : [[1, Hb], [0, Hb], [-1, Hb + 1], [-2, Hb + 2]]
+    for (const [x, y] of tail) put(bx0 + x, y, [240, 240, 246])
+  }
+  // the frisbee: flying in along an arc, then held in his mouth (found as his rightmost pixel in the head rows)
+  if (mood === 'catch') {
+    // his mouth: the open mouth (its red tongue and inside) when he leaps, otherwise the tip of his nose
+    // (a traced pose carries where its mouth is; for the others it is found)
+    let [mx, my] = mouthAt || [-1, -1]
+    if (mx < 0) frame.forEach((row, y) => row.forEach((c, x) => { if (c && c[0] > 90 && c[0] > c[1] * 1.6 && c[0] > c[2] * 1.4 && x > mx) { mx = x; my = y } }))
+    if (mx < 0) {
+      mx = 40; my = 14
+      for (let y = 0; y < 24; y++) for (let x = SW - 1; x >= 0; x--) if (frame[y] && frame[y][x]) { if (x > mx) { mx = x; my = y } break }
     }
-    for (let k = 0; k < 3; k++) put(bubbleLeft ? bx0 + W + k : bx0 - 1 - k, Hb - 1 + k, [240, 240, 246]) // the bubble's tail, toward his head
+    const fArt = (mode === 'braille' && PROPS.frisbee.dots) || PROPS.frisbee.art
+    const fw = fArt[0].length * PX
+    // held across the jaws: its back edge in his mouth, the rest sticking out in front, its middle at mouth height
+    const hx = dogX + mx - Math.floor(fw / 4), hy = my - lift + Math.ceil(fArt.length * PX / 2) - 1
+    const caughtAt = set.catchAt != null ? frameStart(set, set.catchAt) : 0.5 // caught at the top of the leap
+    const k = Math.min(1, catchPhase / caughtAt)
+    const fx = Math.round(TW + 4 + (hx - TW - 4) * k), fy = Math.round(3 + (hy - 3) * k - Math.sin(Math.PI * k) * 6)
+    prop('frisbee', catchPhase < caughtAt ? fx : hx, Math.max(fArt.length * PX - 1, catchPhase < caughtAt ? fy : hy))
+  }
+  // petted: hearts floating up from his head
+  if (mood === 'pet') {
+    for (let i = 0; i < 2; i++) {
+      const age = (t * 0.9 + i / 2) % 1
+      prop('heart', dogX + 40 + i * 7 + Math.round(Math.sin(age * 6 + i) * 2), Math.round(10 - age * 10)) // (ahead of his face, not over it)
+    }
   }
   // the stick he brings back, held across his mouth
-  if (fetchBack) for (let k = -5; k <= 6; k++) { put(dogX + k, 15, [156, 108, 62]); if (k > -4 && k < 5) put(dogX + k, 16, [118, 80, 44]) }
-  const cells = canvasToCellList(canvas, columns, TERRY_ROWS, mode)
+  if (fetchBack) {
+    const [sx, sy] = mouthAt ? [SW - 1 - mouthAt[0], mouthAt[1] - lift] : [0, 15] // (the frame is turned round: so is the mouth)
+    for (let k = -6; k <= 5; k++) { put(dogX + sx + k, sy, [156, 108, 62]); if (k > -5 && k < 4) put(dogX + sx + k, sy + 1, [118, 80, 44]) }
+  }
+  const marks = []
+  const mark = (x, y, text, color) => marks.push({ x, y, text, color })
   const markX = Math.ceil((dogX + SW) / 2)
-  if (mood === 'bark' && Math.floor(ms / 340) % 2 === 0) writeText(cells, columns, markX, 1, '!', 0xffd166)
-  if (mood === 'happy' && Math.floor(ms / 300) % 2 === 0) writeText(cells, columns, markX, 0, '*', 0xffd166)
-  if (mood === 'ask' && Math.floor(ms / 600) % 4 !== 3) writeText(cells, columns, bubbleCol + 1, 1, '?', 0x2a2a36)
+  if (mood === 'bark' && Math.floor(ms / 340) % 2 === 0) mark(markX, 1, '!', 0xffd166)
+  if (mood === 'happy' && Math.floor(ms / 300) % 2 === 0) mark(markX, 0, '*', 0xffd166)
+  if (mood === 'ask' && mode !== 'braille' && Math.floor(ms / 600) % 4 !== 3) mark(bubbleCol + 2, 1, '?', 0x2a2a36)
   if (mood === 'sleep') {
     const phase = Math.floor(ms / 700) % 3
-    writeText(cells, columns, markX - 3, 3, 'z', 0x9aa4c8)
-    if (phase >= 1) writeText(cells, columns, markX - 2, 2, 'Z', 0x9aa4c8)
-    if (phase >= 2) writeText(cells, columns, markX - 1, 1, 'Z', 0xb8c0e0)
+    mark(markX - 3, 3, 'z', 0x9aa4c8)
+    if (phase >= 1) mark(markX - 2, 2, 'Z', 0x9aa4c8)
+    if (phase >= 2) mark(markX - 1, 1, 'Z', 0xb8c0e0)
   }
+  return { canvas, columns, marks }
+}
+
+export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high', date = null) {
+  const { canvas, marks } = terryScene(mood, ms, mode, hour, columns, effort, date)
+  const cells = canvasToCellList(canvas, columns, TERRY_ROWS, mode)
+  for (const m of marks) writeText(cells, columns, m.x, m.y, m.text, m.color)
   return packCells(cells)
 }

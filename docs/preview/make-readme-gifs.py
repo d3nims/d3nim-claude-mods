@@ -33,8 +33,7 @@ QUAD = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█'
 # Terry's day: (mood, seconds, card line 1 colour, what the prompt shows)
 STORY = [
     ('sit', 1.6, FG, ''),
-    ('bark', 0.8, (255, 209, 102), '테'),
-    ('wag', 1.8, FG, '테리 산책 코스 추천해줘'),
+    ('wag', 2.4, FG, '테리 산책 코스 추천해줘'),
     ('run', 3.0, (127, 178, 255), ''),
     ('happy', 1.8, (155, 224, 138), ''),
     ('sleep', 2.2, FG, ''),
@@ -49,12 +48,12 @@ const story = %s, step = %d
 const terry = []
 let ms = 0
 for (const [mood, secs] of story) {
-  for (let k = 0; k < Math.round(secs * 1000 / step); k++, ms += step) terry.push({ mood, k, cells: terryCells(mood, ms, 'quad', %d) })
+  for (let k = 0; k < Math.round(secs * 1000 / step); k++, ms += step) terry.push({ mood, k, cells: terryCells(mood, ms, 'braille', %d) })
 }
 const efforts = []
-for (let k = 0; k < 36; k++) efforts.push(['low', 'medium', 'high', 'xhigh', 'max'].map(e => terryCells('run', k * step, 'quad', %d, TERRY_COLS, e)))
+for (let k = 0; k < 36; k++) efforts.push(['low', 'medium', 'high', 'xhigh', 'max'].map(e => terryCells('run', k * step, 'braille', %d, TERRY_COLS, e)))
 const actions = []
-for (let k = 0; k < 46; k++) actions.push(['sniff', 'dig', 'fetch', 'ask', 'sad'].map(m => terryCells(m, k * step, 'quad', %d, TERRY_COLS, 'high', { month: 10, day: 6, moodMs: 3000 + k * step })))
+for (let k = 0; k < 46; k++) actions.push(['sniff', 'dig', 'fetch', 'ask', 'sad'].map(m => terryCells(m, k * step, 'braille', %d, TERRY_COLS, 'high', { month: 10, day: 6, moodMs: 3000 + k * step })))
 const band = makeBand(72, 3, 'quad')
 const flames = []
 for (let k = 0; k < 40; k++) flames.push(band.cells([38, 71, 12], k * step / 1000))
@@ -96,14 +95,21 @@ def width(s):
 
 
 def raster(d, col0, row0, packed, cols, rows):
-    """Draws Raster cells (quadrant blocks, LE u32 [codePoint, fg, bg]) at a cell position."""
+    """Draws Raster cells (braille dots or quadrant blocks, LE u32 [codePoint, fg, bg]) at a cell position."""
     raw = base64.b64decode(packed)
     colour = lambda v: BG if v & 0x01000000 else ((v >> 16) & 255, (v >> 8) & 255, v & 255)
     for i in range(cols * rows):
         code, fg, bg = struct.unpack_from('<III', raw, i * 12)
         x, y = (col0 + i % cols) * CW, (row0 + i // cols) * CH
         ch = chr(code)
-        if ch in QUAD:
+        if 0x2800 < code <= 0x28FF:
+            # a braille cell: its lit dots, 2 across and 4 down, in its one colour (Terry is drawn this way)
+            bits = code - 0x2800
+            for k, (dx, dy) in enumerate([(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (0, 3), (1, 3)]):
+                if bits & (1 << k):
+                    cx, cy = x + 3 + dx * 4, y + 3 + dy * 4.4
+                    d.ellipse([cx - 1.4, cy - 1.4, cx + 1.4, cy + 1.4], fill=colour(fg))
+        elif ch in QUAD:
             bits = QUAD.index(ch)
             for q in range(4):
                 c = colour(fg) if bits & (1 << q) else colour(bg)

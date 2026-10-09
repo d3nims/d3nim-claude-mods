@@ -11,13 +11,14 @@ function engine(on: any, five = 38, week = 71) {
   currentEffort = 'high'
   mock.store(on)
   const clock = mock.clock(on)
-  mock.env(on, { COLORTERM: 'truecolor' })
+  mock.env(on, { COLORTERM: 'truecolor', TERRY_HOUR: '14' }) // mid-afternoon, so no dinner or night nap gets in the way
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: {} }))
   on('session.model', () => ({ value: currentModel }))
   on('settings.read', () => ({ value: { effortLevel: currentEffort } }))
   on('ui.toast', () => ({ value: {} }))
   on('ui.blit', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.usage', () => ({
     value: {
       startedAt: 0,
@@ -192,10 +193,65 @@ test('/terry stats tells the day so far', async ($, on) => {
   expect(answer.text).toMatch(/아직 오늘 요청이 없어요/)
 })
 
+test('a passing test run makes Terry catch a frisbee, a failing one droops his ears', async ($, on) => {
+  engine(on)
+  let output = ' 12 pass\n 0 fail'
+  on('tool.call', () => ({ result: output, text: output }))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(WIDE as object), isWorking: true } as never })
+  await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /원반/ })).toBeDefined()
+  output = 'Tests: 2 failed, 10 passed'
+  await $.tool.call({ tool: 'Bash', command: 'npx vitest run' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /테스트 실패/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('with the 5-hour limit used up he waits at the door; /terry pet makes him happy', async ($, on) => {
+  engine(on, 100)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  expect(await ui.find({ type: 'Text', text: /한도가 풀리길 기다리는 중/ })).toBeDefined()
+  await $.command.run({ command: 'terry', args: 'pet' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /쓰다듬어 줘서 좋아요/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('very narrow: name and percent beside Terry; narrower still, Terry alone', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 44 } as never })
+  expect(await ui.find({ key: 'terry-row' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^5시간/ })).toBeDefined()
+  await ui.redraw({ ...(BAND as object), bodyColumns: 38 } as never)
+  expect(await ui.find({ key: 'terry-alone' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a surface without Raster still gets the percentages as text', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'desktop', component: 'AbovePrompt', props: BAND })
   expect(await ui.find({ type: 'Text', text: /5시간 38%/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('/terry pane opens Terry in a pane of his own, with what he is doing and the usage under him', async ($, on) => {
+  engine(on, 38)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const said = await $.command.run({ command: 'terry', args: 'pane' } as never)
+  expect(JSON.stringify(said)).toContain('옆 창')
+  const pane = await $.ui.mount({
+    plugin: 'usage-meter', surface: 'terminal', component: 'Pane', requestId: 'terry',
+    props: { title: '테리', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 20 } } as never,
+  })
+  expect(await pane.find({ type: 'Raster', key: 'pane-terry' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /5시간 38%/ })).toBeDefined()
+  await pane.unmount()
 })

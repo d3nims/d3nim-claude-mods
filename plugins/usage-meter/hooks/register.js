@@ -4,10 +4,10 @@
 // 뒤에 quad 또는 braille 을 붙이면 그림 방식을 바꿉니다 (예: /terry braille)
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
-import { BAND_GAP, BAND_NAMES, RUN_STYLES, runStyle, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
+import { BAND_GAP, BAND_NAMES, RUN_STYLES, runStyle, holidayOf, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
-const FRAME_MS = 66 // 약 15프레임
+const FRAME_MS = 45 // 약 22프레임: 사이 프레임을 늘린 움직임이 부드럽게 보이도록
 
 const startedAt = Date.now()
 const nowMs = () => Date.now() - startedAt
@@ -21,9 +21,13 @@ const today = () => {
     shownMood = m
     shownSince = Date.now()
   }
-  return { month: d.getMonth() + 1, day: d.getDate(), moodMs: Date.now() - shownSince }
+  const month = d.getMonth() + 1, day = d.getDate()
+  const anniversary = !!installedOn && installedOn.slice(5) === String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0') && Number(installedOn.slice(0, 4)) < d.getFullYear()
+  return { month, day, moodMs: Date.now() - shownSince, holiday: holidayOf(d.getFullYear(), month, day), anniversary, style: look }
 }
+let hourOverride = null // TERRY_HOUR=21 이면 그 시각으로 고정 (밤하늘 미리보기, 테스트)
 const localHour = () => {
+  if (hourOverride !== null) return hourOverride
   const d = new Date()
   return d.getHours() + d.getMinutes() / 60
 }
@@ -37,15 +41,17 @@ let countedChunks = 0
 let effortFrom = '없음' // 추론 강도를 어디서 읽었는지 (/terry debug)
 let effort = null // 추론 강도: 요청마다 turn.step 에서 읽는다. 첫 요청 전이거나 강도가 없는 모델이면 null
 let style = 'flame1' // 'flame1' (불꽃 밴드) | 'terry' (강아지)
-let mode = 'quad' // 'quad' (사분블록) | 'braille' (점자)
+let look = 'classic' // 테리 그림체: 'classic' (기본) | 'real' (참고 그림에서 따온 자세, 보류 중: /terry real 로만 켜짐)
+let mode = 'quad' // 'quad' (사분블록) | 'fine' (사분블록 + ▂▄▆, 가로 경계가 4단계로 매끈) | 'braille' (점자)
 
 // 임계치 알림: 같은 단계는 한 번만
 const lastTier = new Map()
 let lastContextTier = 0
 
 // 움직이는 그림을 다시 그리는 타이머
-let anim = null
+const anims = new Map() // 그림(Raster key)마다 따로 도는 애니메이션: 프롬프트 위의 테리와 옆 창의 테리가 함께 움직인다
 let denies = 0
+const PANE = 'terry' // 테리를 따로 크게 보는 옆 창 (/terry pane, 🐕 버튼)
 
 // 테리의 기분: 지금 무슨 일이 일어나는지에 따라 바뀐다
 const SLEEP_AFTER = 3 * 60 * 1000 // 이만큼 조용하면 존다
@@ -61,6 +67,26 @@ let activityKind = null
 let activityUntil = 0 // 빨리 끝나는 도구도 잠깐은 보이게
 const ACTIVITY_MS = 2000
 const asking = new Set() // 허락을 기다리는 도구 호출
+// 테스트 결과: 통과하면 원반을 받고, 실패하면 귀가 처진다
+let testUntil = 0
+let testMood = null
+const TEST_CMD = /\b(npm|pnpm|yarn|bun)\s+(run\s+)?test\b|\b(jest|vitest|pytest|mocha|ava|phpunit|rspec)\b|\bgo test\b|\bcargo test\b|\bdotnet test\b|\b(gradlew?|mvn)\b.*\btest\b|\bplugin test\b|\bnode --test\b|\bdeno test\b|\bmake test\b/
+const TEST_FAIL = /\b[1-9]\d*\s+(failed|failing|failures?)\b|^FAIL\b|\bFAILED\b|Tests?:\s+[1-9]\d* failed|\bAssertionError\b|test result: FAILED/im
+const TEST_PASS = /\b\d+\s+(passed|passing|pass)\b|\ball tests passed\b|^OK\b|test result: ok\b|^ok\s/im
+// 하루 일과: 그날 첫 입력에 기지개, 저녁 6~7시 반엔 밥, 새벽 1~5시엔 금방 존다
+let stretchUntil = 0
+let stretchDay = null
+const dateKey = () => {
+  const d = new Date()
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+}
+let installedOn = null // 테리를 처음 만난 날: 해마다 그날엔 케이크
+// 쓰다듬기
+let petUntil = 0
+// 5시간 한도를 다 쓰면 문 앞에서 기다리다가, 풀리는 순간 짖는다
+let limitWaitUntil = 0
+let limitNotified = 0
+let lastLayout = 'beside' // 테리 옆에 카드가 안 들어가면 스피너에 테리 소식을 붙인다
 let sadUntil = 0 // 요청이 실패하거나 멈추면 잠시 시무룩
 let sadReason = null
 function toolKind(tool) {
@@ -88,28 +114,41 @@ const PREVIEW_ARGS = {
   fetch: 'fetch', 물어오기: 'fetch', 막대기: 'fetch',
   ask: 'ask', 허락: 'ask', 손: 'ask',
   sad: 'sad', 시무룩: 'sad', 실패: 'sad',
+  door: 'door', 문: 'door', 한도: 'door',
+  catch: 'catch', 원반: 'catch', 통과: 'catch',
+  droop: 'droop', 테스트실패: 'droop',
+  stretch: 'stretch', 기지개: 'stretch',
+  eat: 'eat', 밥: 'eat',
 }
 
 function mood() {
   const now = Date.now()
   if (previewing()) return previewMood
+  if (now < petUntil) return 'pet'
   if (working) {
     if (asking.size) return 'ask'
+    if (now < testUntil) return testMood
     const current = [...activeTools.values()].pop()
     if (current) return current
     if (activityKind && now < activityUntil) return activityKind
     return 'run'
   }
   if (now < sadUntil) return 'sad'
+  if (now < testUntil) return testMood
+  if (now < stretchUntil) return 'stretch'
   if (now < barkUntil) return 'bark'
   if (now < typingUntil) return 'wag'
   if (now < happyUntil) return 'happy'
-  if (now - lastActivity > SLEEP_AFTER) return 'sleep'
+  if (limitWaitUntil > now) return 'door'
+  const h = localHour()
+  if (now - lastActivity > (h >= 1 && h < 5 ? 30000 : SLEEP_AFTER)) return 'sleep'
+  if (h >= 18 && h < 19.5 && Math.floor(now / 60000) % 5 < 2) return 'eat' // dinner: two minutes in every five
   return 'sit'
 }
 const MOOD_SHORT = {
   sit: '기다리는 중', wag: '보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요',
   sniff: '킁킁', dig: '파는 중', fetch: '물어 오는 중', ask: '허락 대기', sad: '시무룩',
+  door: '문 앞 대기', catch: '원반 캐치!', droop: '테스트 실패', stretch: '기지개', eat: '밥 먹는 중', pet: '좋아요!',
 }
 // 달리기는 추론 강도에 따라: low 걷기, medium 빨리 걷기, high 달리기, xhigh 전력 질주, max 날기
 const RUN_TEXT = { low: '걷는 중', medium: '빨리 걷는 중', high: '달리는 중', xhigh: '전력 질주 중', max: '날아가는 중!' }
@@ -122,13 +161,18 @@ const EFFORT_ALIASES = {
   max: 'max', 최대: 'max', 최고: 'max', 끝까지: 'max',
 }
 const runEffort = () => (previewing() && previewEffort ? previewEffort : effort)
+const HOLIDAY_TEXT = { seollal: ['설날 · 새해 복 많이 받으세요', '새해 복!'], chuseok: ['추석 · 보름달이 떴어요', '추석!'] }
 const moodLabel = (m, short) =>
-  m === 'run' ? RUN_TEXT[runEffort()] ?? RUN_TEXT.high
+  m === 'sit' && today().anniversary ? (short ? '1주년!' : '테리와 만난 지 ' + (new Date().getFullYear() - Number(installedOn.slice(0, 4))) + '년!')
+  : m === 'sit' && today().holiday ? HOLIDAY_TEXT[today().holiday][short ? 1 : 0]
+  : m === 'run' ? RUN_TEXT[runEffort()] ?? RUN_TEXT.high
   : m === 'sad' && !short ? (sadReason === 'aborted' ? '멈췄어요, 시무룩' : '앗, 실패했어요')
   : short ? MOOD_SHORT[m] : MOOD_TEXT[m]
 const MOOD_TEXT = {
   sit: '앉아서 기다리는 중', wag: '입력하는 걸 보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요 zZ',
   sniff: '파일을 킁킁 살피는 중', dig: '열심히 파는 중', fetch: '웹에서 물어 오는 중', ask: '허락을 기다려요!', sad: '앗, 실패했어요',
+  door: '한도가 풀리길 기다리는 중', catch: '테스트 통과! 원반 잡았다', droop: '테스트 실패… 시무룩', stretch: '기지개 켜는 중',
+  eat: '밥 먹는 시간이에요', pet: '쓰다듬어 줘서 좋아요!',
 }
 
 // 이번 요청(턴)의 숫자: 걸린 시간, 토큰, 초당 토큰
@@ -193,7 +237,7 @@ async function flushStats($) {
   pendingStats = null
   try {
     const key = dayKey()
-    const day = (await $.store.get(key)) || { requests: 0, input: 0, output: 0, longest: 0, meters: 0 }
+    const day = (await $.store.get(key)) || { requests: 0, input: 0, output: 0, longest: 0, meters: 0, pets: 0 }
     const secs = Math.max(0, (t.end - t.start) / 1000)
     day.requests += 1
     day.input += t.input + t.cacheRead + t.cacheWrite
@@ -203,6 +247,17 @@ async function flushStats($) {
     await $.store.set(key, day)
   } catch (err) {}
 }
+async function addPet($, ms = 3000) {
+  petUntil = Date.now() + ms
+  lastActivity = Date.now()
+  try {
+    const key = dayKey()
+    const day = (await $.store.get(key)) || { requests: 0, input: 0, output: 0, longest: 0, meters: 0, pets: 0 }
+    day.pets = (day.pets || 0) + 1
+    await $.store.set(key, day)
+  } catch (err) {}
+  $.ui.invalidate('ui.render')
+}
 async function statsText($) {
   const d = new Date()
   let day = null
@@ -210,7 +265,7 @@ async function statsText($) {
     day = await $.store.get(dayKey())
   } catch (err) {}
   const head = '오늘의 테리 (' + (d.getMonth() + 1) + '/' + d.getDate() + ')'
-  if (!day || !day.requests) return head + '\n아직 오늘 요청이 없어요. 테리가 쉬는 중이에요.'
+  if (!day || (!day.requests && !day.pets)) return head + '\n아직 오늘 요청이 없어요. 테리가 쉬는 중이에요.'
   const dur = s => (s < 60 ? s.toFixed(1) + '초' : Math.floor(s / 60) + '분 ' + Math.round(s % 60) + '초')
   const dist = m => (m < 1000 ? Math.round(m) + 'm' : (m / 1000).toFixed(1) + 'km')
   return [
@@ -218,21 +273,26 @@ async function statsText($) {
     '요청 ' + day.requests + '번 · 토큰 입력 ' + fmtTokens(day.input) + ' / 출력 ' + fmtTokens(day.output),
     '가장 오래 걸린 요청 ' + dur(day.longest),
     '테리가 달린 거리 ' + dist(day.meters),
+    ...(day.pets ? ['쓰다듬은 횟수 ' + day.pets + '번'] : []),
   ].join('\n')
 }
 
 // 사용법 안내 (불러올 때 알림창으로, /flame1 help 로도 볼 수 있다). 명령 하나당 한 줄.
 const guide = () =>
   [
-    'usage-meter 사용법 (지금: ' + (style === 'terry' ? '강아지' : '불꽃 밴드') + ', ' + (mode === 'quad' ? 'quad' : 'braille') + ')',
+    'usage-meter 사용법 (지금: ' + (style === 'terry' ? '강아지' : '불꽃 밴드') + ', ' + mode + ')',
     '/flame1 quad    : 파란 불꽃 밴드, 꽉 찬 블록으로 그림',
     '/flame1 braille : 파란 불꽃 밴드, 점자로 그림 (더 곱지만 알알이 보일 수 있음)',
     '/terry quad     : 달리는 강아지, 꽉 찬 블록으로 그림',
     '/terry braille  : 달리는 강아지, 점자로 그림',
+    '/terry pane     : 테리를 옆 창에 따로 띄우기 (카드의 🐕 를 눌러도 됨)',
+    '/terry fine     : 달리는 강아지, 촘촘한 블록으로 그림 (등선·배·머리 윤곽이 더 매끈)',
     '/terry run      : 20초 동안 달리는 모습 미리보기 (sit · wag · bark · happy · sleep 도 됨, stop 으로 끝내기)',
     '/terry run max  : 추론 강도별 달리기 미리보기 (low 걷기 · medium 빨리 걷기 · high 달리기 · xhigh 전력 질주 · max 날기)',
     '/terry sniff    : 도구별 동작 미리보기 (sniff 읽기 · dig 실행·고치기 · fetch 웹 · ask 허락 대기 · sad 실패)',
-    '/terry stats    : 오늘의 기록 (요청 수 · 토큰 · 가장 오래 걸린 요청 · 테리가 달린 거리)',
+    '/terry catch    : 상황별 동작 미리보기 (catch 테스트 통과 · droop 테스트 실패 · door 한도 대기 · stretch 하루 첫 입력 · eat 저녁)',
+    '/terry stats    : 오늘의 기록 (요청 수 · 토큰 · 가장 오래 걸린 요청 · 테리가 달린 거리 · 쓰다듬은 횟수)',
+    '/terry pet      : 쓰다듬기 (카드의 🐾 를 눌러도 돼요)',
   ].join('\n')
 
 const LABELS = { five_hour: '5시간', seven_day: '주간', spend_limit: '지출' }
@@ -394,6 +454,10 @@ async function refresh($) {
     } catch (err) {}
   }
 
+  // 5시간 한도를 다 썼으면 풀리는 시각까지 문 앞에서 기다린다
+  const five = usage.rateLimits.find(l => l.kind === 'five_hour')
+  const fiveReset = five && Date.parse(five.resetsAt)
+  if (five && five.percentUsed >= 100 && fiveReset > Date.now() + 1000 && fiveReset !== limitNotified) limitWaitUntil = fiveReset
   for (const limit of usage.rateLimits) {
     const tier = tierFor(limit.percentUsed)
     const prevTier = lastTier.get(limit.kind) ?? 0
@@ -417,16 +481,20 @@ async function refresh($) {
   $.ui.invalidate('ui.render')
 }
 
-function stopAnim() {
-  anim?.timer.cancel()
-  anim = null
+function stopAnim(key) {
+  for (const [k, a] of anims) {
+    if (key !== undefined && k !== key) continue
+    a.timer.cancel()
+    anims.delete(k)
+  }
 }
+const openPane = $ => $.ui.open({ id: PANE, title: '테리' })
 
 // 같은 그림이면 그대로 두고, 바뀌었으면 타이머를 새로 건다. blit 이 거절되면(아직 안 그려졌을 수 있음) 몇 번 다시 시도한다.
 function runAnim($, requestId, key, columns, rows, build) {
   const id = [requestId, key, columns, rows, mode].join('|')
-  if (anim && anim.id === id) return
-  stopAnim()
+  if (anims.get(key)?.id === id) return
+  stopAnim(key)
   const timer = $.clock.every(FRAME_MS, () => {
     let cells
     try {
@@ -437,11 +505,11 @@ function runAnim($, requestId, key, columns, rows, build) {
     void $.ui.blit({ requestId, key, cells }).then(result => {
       if (!result.deny) { denies = 0; return }
       denies += 1
-      if (anim && anim.timer === timer) { timer.cancel(); anim = null }
+      if (anims.get(key)?.timer === timer) { timer.cancel(); anims.delete(key) }
       if (denies <= 4) $.ui.invalidate('ui.render')
     }, () => {})
   })
-  anim = { id, timer }
+  anims.set(key, { id, timer })
 }
 
 // 폭이 바뀌면 밴드를 새로 만든다
@@ -458,10 +526,29 @@ export function register(on) {
     await $.command.register({ name: 'flame1', description: '사용량을 파란 불꽃 밴드로 보여요 (뒤에 quad 또는 braille 을 붙이면 그림 방식 변경)' })
     await $.command.register({ name: 'terry', description: '사용량을 베들링턴 테리어가 달리는 화면으로 보여요 (뒤에 quad 또는 braille 을 붙이면 그림 방식 변경)' })
     style = (await $.store.get('style')) === 'terry' ? 'terry' : 'flame1'
-    mode = (await $.store.get('mode')) === 'braille' ? 'braille' : 'quad'
+    const savedMode = await $.store.get('mode')
+    mode = savedMode === 'braille' || savedMode === 'fine' ? savedMode : 'quad'
+    look = (await $.store.get('look')) === 'real' ? 'real' : 'classic'
+    try {
+      stretchDay = (await $.store.get('stretchDay')) ?? null
+      installedOn = (await $.store.get('installedOn')) ?? null
+      if (!installedOn) {
+        installedOn = dateKey()
+        await $.store.set('installedOn', installedOn)
+      }
+    } catch (err) {}
     await refresh($)
     $.clock.every(30000, () => refresh($))
     $.clock.every(1000, () => {
+      // 한도가 풀리는 순간: 문 앞에서 벌떡 일어나 짖고 알린다
+      if (limitWaitUntil && Date.now() >= limitWaitUntil) {
+        limitNotified = limitWaitUntil
+        limitWaitUntil = 0
+        barkUntil = Date.now() + 4000
+        lastActivity = Date.now()
+        void $.ui.toast('🐕 멍! 5시간 한도가 풀렸어요. 다시 시작해도 돼요').catch(() => {})
+        void refresh($).catch(() => {})
+      }
       if (style === 'terry') $.ui.invalidate('ui.render')
     })
     await syncModel($)
@@ -470,6 +557,8 @@ export function register(on) {
     })
     await $.ui.toast(guide(), { timeoutMs: 12000 })
     // 터미널이 트루컬러를 알리지 않으면 Claude Code 가 256색으로 줄여 그린다 (테리가 청록색, 흙길이 회색으로 보임)
+    const pinned = Number.parseFloat((await $.env.get('TERRY_HOUR').catch(() => '')) || '')
+    hourOverride = pinned >= 0 && pinned < 24 ? pinned : null
     let colorterm = ''
     try {
       colorterm = ((await $.env.get('COLORTERM')) || '').toLowerCase()
@@ -518,11 +607,16 @@ export function register(on) {
     }
   })
 
-  // 입력을 시작하면 짖고, 치는 동안 꼬리를 흔든다
+  // 입력하는 동안 혀를 내밀고 꼬리를 흔든다 (입력 시작에 짖던 건 너무 짧아 빼 버렸다)
   on('prompt.edit', async ($, e, next) => {
     const now = Date.now()
     if (!working) {
-      if (now - lastEdit > 6000) barkUntil = now + 1400
+      const todayKey = dateKey()
+      if (stretchDay !== todayKey) {
+        stretchDay = todayKey
+        stretchUntil = now + 4000 // the whole stretch: the bow, the yawn, the hind legs, and back up
+        void $.store.set('stretchDay', todayKey).catch(() => {})
+      }
       typingUntil = now + 3500
     }
     lastEdit = now
@@ -564,7 +658,18 @@ export function register(on) {
       $.ui.invalidate('ui.render')
     }
     try {
-      return await next(e)
+      const result = await next(e)
+      // 테스트를 돌린 명령이면 결과를 읽어 원반을 받거나 귀가 처진다
+      if (e.tool === 'Bash' && typeof e.command === 'string' && TEST_CMD.test(e.command) && result && !result.deny) {
+        const out = typeof result.text === 'string' ? result.text : JSON.stringify(result.result ?? '')
+        const verdict = result.isError || TEST_FAIL.test(out) ? 'droop' : TEST_PASS.test(out) ? 'catch' : null
+        if (verdict) {
+          testMood = verdict
+          testUntil = Date.now() + (verdict === 'catch' ? 3300 : 3500)
+          $.ui.invalidate('ui.render')
+        }
+      }
+      return result
     } finally {
       activeTools.delete(id)
       if (asking.delete(id)) $.ui.invalidate('ui.render')
@@ -593,6 +698,15 @@ export function register(on) {
       const arg = e.args.trim().toLowerCase()
       if (arg === 'help' || arg === '?') return { text: guide() }
       if (name === 'terry' && (arg === 'stats' || arg === '기록' || arg === '오늘')) return { text: await statsText($) }
+      if (name === 'terry' && (arg === 'pane' || arg === '창' || arg === 'window')) {
+        const opened = await openPane($)
+        return { text: opened.isPlaced ? '테리를 옆 창에 띄웠어요 (창 위 ✕ 나 Esc 로 닫기)' : '테리 창을 열었는데 화면이 좁아 아직 못 그렸어요: 터미널을 넓히면 나타나요' }
+      }
+      if (name === 'terry' && (arg === 'pet' || arg === '쓰다듬기' || arg === '쓰담')) {
+        style = 'terry'
+        await addPet($, 8000)
+        return { text: '테리가 좋아해요! 🐾 (카드의 🐾 를 눌러도 쓰다듬을 수 있어요)' }
+      }
       if (arg === 'debug') {
         let env = '(읽기 실패)'
         try {
@@ -626,23 +740,58 @@ export function register(on) {
         $.ui.invalidate('ui.render')
         return { text: previewMood ? moodLabel(previewMood, false) + ' 모습을 20초 동안 보여 줄게요 (/terry stop 으로 끝내기)' : '미리보기를 끝냈어요' }
       }
-      if (arg === 'quad' || arg === 'braille') {
+      if (arg === 'quad' || arg === 'braille' || arg === 'fine') {
         mode = arg
         await $.store.set('mode', mode)
+      }
+      if (arg === 'classic' || arg === 'real') {
+        look = arg
+        await $.store.set('look', look)
       }
       style = name
       await $.store.set('style', style)
       stopAnim()
       $.ui.invalidate('ui.render')
-      const way = mode === 'quad' ? '사분블록(quad)' : '점자(braille)'
-      return { text: (style === 'terry' ? '강아지(terry)' : '불꽃 밴드(flame1)') + ' 화면으로 바꿨어요 · 그림 방식: ' + way }
+      const way = mode === 'quad' ? '사분블록(quad)' : mode === 'fine' ? '촘촘한 블록(fine)' : '점자(braille)'
+      const lookText = style === 'terry' ? ' · 그림체: ' + (look === 'classic' ? '예전(classic)' : '새(real)') : ''
+      return { text: (style === 'terry' ? '강아지(terry)' : '불꽃 밴드(flame1)') + ' 화면으로 바꿨어요 · 그림 방식: ' + way + lookText }
     })
   }
+
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    if (style !== 'terry' || lastLayout === 'beside' || !e.props) return next(e)
+    const suffix = (typeof e.props.suffix === 'string' ? e.props.suffix : '…') + '  🐾 ' + moodLabel(mood(), true)
+    return next({ ...e, props: { ...e.props, suffix } })
+  })
+
+  // 옆 창의 테리: 프롬프트 위와 같은 장면을 창 폭에 맞춰 그리고, 아래에 지금 동작과 사용량 한 줄
+  // (이 세션 화면 안에서 그려진다: SSH 로 붙은 터미널에서도 새 연결 없이 보인다)
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const elements = $.ui.resolve(e)
+    const { Box, Text } = elements
+    const Raster = 'Raster' in elements ? elements.Raster : null
+    if (!Raster || e.surface !== 'terminal') return Text({ key: 'pane-none', dimColor: true, children: ['테리는 터미널 화면에서만 보여요'] })
+    const cols = Math.max(TERRY_MIN_COLS, Math.min(TERRY_COLS, (e.props.bodyColumns || TERRY_COLS) - 1))
+    const scene = () => terryCells(mood(), nowMs(), mode, localHour(), cols, runEffort(), today())
+    runAnim($, e.requestId, 'pane-terry', cols, TERRY_ROWS, scene)
+    const m = mood()
+    const vals = values()
+    return Box({
+      key: 'pane',
+      flexDirection: 'column',
+      children: [
+        Raster({ key: 'pane-terry', columns: cols, rows: TERRY_ROWS, cells: scene() }),
+        Text({ key: 'pane-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' || m === 'catch' || m === 'pet' ? '#9be08a' : undefined, children: [moodLabel(m, false)] }),
+        Text({ key: 'pane-use', dimColor: true, children: [BAND_NAMES.map((n, i) => n + ' ' + show(vals[i])).join(' · ')] }),
+      ],
+    })
+  })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!usage || e.props.hasSurvey) return next(e)
     const elements = $.ui.resolve(e)
     const { Box, Text } = elements
+    const Button = 'Button' in elements ? elements.Button : null
     const Raster = 'Raster' in elements ? elements.Raster : null
     const vals = values()
     const cols = Math.max(30, e.props.bodyColumns || 80)
@@ -657,7 +806,7 @@ export function register(on) {
       })
     }
 
-    // /terry 화면: 테리가 지금 일어나는 일에 반응한다. 평소엔 앉아 있다가, 입력을 시작하면 짖고, 치는 동안 꼬리를 흔들고,
+    // /terry 화면: 테리가 지금 일어나는 일에 반응한다. 평소엔 앉아 있다가, 입력하는 동안 꼬리를 흔들고,
     // 엔터를 치면 응답이 끝날 때까지 달리고, 끝나면 꼬리를 흔들고, 한참 조용하면 존다. 옆 카드에 이번 요청의 숫자.
     if (style === 'terry') {
       // 화면이 알려 주는 '응답 중' 표시를 기준으로 맞춘다 (훅을 놓쳐도 달리기가 켜진 채로 남지 않게)
@@ -668,29 +817,34 @@ export function register(on) {
       }
       const m = mood()
       drawnMood = m
-      // 폭 나누기: 넓으면 테리(하늘 포함) 옆에 카드·표. 좁아지면 하늘부터 줄여서라도 옆에 둔다. 그래도 모자라면 아래로.
-      // 창을 여러 개 나눠 띄우는 사람도 있어서, 아주 좁아도(옆자리 15칸) 간추려 옆에 둔다.
+      // 폭 나누기: 넓으면 테리(하늘 포함) 옆에 카드·표. 좁아지면 하늘부터 줄여서라도 옆에 둔다.
+      // 창을 여러 개 나눠 띄우는 사람도 있어서, 옆자리가 10칸만 있어도 간추려 옆에 둔다. 그보다 좁으면 테리만 두고
+      // 소식은 Claude 의 스피너에 붙인다.
       const SIDE_FULL = 26
-      const SIDE_MIN = 17
+      const SIDE_MIN = 12
       let terryCols = TERRY_COLS
       let beside = cols - TERRY_COLS - 4 >= SIDE_FULL
       if (!beside && cols - TERRY_MIN_COLS - 4 >= SIDE_MIN) {
         beside = true
         terryCols = Math.max(TERRY_MIN_COLS, cols - 4 - Math.min(34, cols - 4 - TERRY_MIN_COLS))
       }
+      if (!beside) terryCols = Math.max(TERRY_MIN_COLS, Math.min(TERRY_COLS, cols - 2))
+      lastLayout = beside ? 'beside' : 'alone'
       const sideRoom = cols - terryCols - 4
       const gap = sideRoom >= 40 ? 4 : 2
       const sideW = beside ? sideRoom - gap : cols
       // 좁은 옆자리(tight): 짧은 상태 문구, 토큰을 두 줄로, '지난 요청' 빼기 (카드 폭이 넘쳐 줄이 밀리지 않게)
       // 더 좁으면(mini): 테두리 없이 상태 · 모델 · 시간만, 사용량은 막대와 %만
+      // 아주 좁으면(nano): 상태와 모델 이름만, 사용량은 이름과 %만
       const tight = sideW < 33
       const mini = beside && sideW < 22
+      const nano = beside && sideW < 15
       runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour(), terryCols, runEffort(), today()))
       const name = prettyModel(modelId)
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
       const moodText = moodLabel(m, tight) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
-      const tokenLines = mini ? [] : !t ? [' '] : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
-      const showEffort = !mini || visible((name ?? '') + ' · ' + (effort ?? '--')) <= sideW
+      const tokenLines = mini || nano ? [] : !t ? [' '] : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
+      const showEffort = !nano && (!mini || visible((name ?? '') + ' · ' + (effort ?? '--')) <= sideW)
       const timeText = !t ? (mini ? '요청 없음' : '아직 요청이 없어요') : (working || tight ? '' : '지난 요청 ') + t.time
       const timeLine = mini && visible(timeText) > sideW ? timeText.split(' · ')[0] : timeText
       const card = Box({
@@ -699,7 +853,15 @@ export function register(on) {
         ...(mini ? {} : { borderStyle: 'round', borderColor: CARD_BORDER }),
         paddingX: tight ? 0 : 1,
         children: [
-          Text({ key: 'tc-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' ? '#9be08a' : m === 'bark' ? '#ffd166' : undefined, children: [moodText] }),
+          Box({
+            key: 'tc-moodrow',
+            flexDirection: 'row',
+            children: [
+              Text({ key: 'tc-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' || m === 'catch' || m === 'pet' ? '#9be08a' : m === 'bark' ? '#ffd166' : undefined, children: [moodText] }),
+              ...(Button && !nano ? [Text({ key: 'tc-sp', children: [' '] }), Button({ key: 'terry-pet', label: '🐾', plain: true, dimColor: true, onPress: () => void addPet($) }),
+                Text({ key: 'tc-sp2', children: [' '] }), Button({ key: 'terry-pane', label: '🐕', plain: true, dimColor: true, onPress: () => void openPane($) })] : []),
+            ],
+          }),
           Box({
             key: 'tc-model',
             flexDirection: 'row',
@@ -715,26 +877,26 @@ export function register(on) {
                 ]
               : [Text({ key: 'tc-none', dimColor: true, children: ['모델 정보 기다리는 중'] })],
           }),
-          Text({ key: 'tc-time', dimColor: !working, children: [timeLine] }),
+          ...(nano ? [] : [Text({ key: 'tc-time', dimColor: !working, children: [timeLine] })]),
           ...tokenLines.map((line, i) => Text({ key: 'tc-tokens' + i, dimColor: true, children: [line] })),
         ],
       })
       // 사용량: 오른쪽 아래에 줄을 맞춘 작은 표 (이름 / 막대 / % / 초기화). 폭이 모자라면 초기화 문구를 뺀다.
       // 막대는 가는 선(━)으로 그려 세 줄 사이에 틈이 생기게 하고, 남는 폭만큼 길게 늘인다.
       const withReset = sideW >= 32
-      const MINI = Math.max(4, Math.min(20, sideW - 11 - (withReset ? 15 : 0)))
+      const MINI = nano ? 0 : Math.max(4, Math.min(20, sideW - 11 - (withReset ? 15 : 0)))
       const usageTable = Box({
         key: 'terry-usage',
         flexDirection: 'column',
         children: BAND_NAMES.map((nm, i) => {
           const v = vals[i] ?? 0
-          const filled = v <= 0 ? 0 : Math.max(1, Math.round((Math.min(100, v) / 100) * MINI))
+          const filled = v <= 0 || !MINI ? 0 : Math.max(1, Math.round((Math.min(100, v) / 100) * MINI))
           const reset = withReset ? resetText(i) : null
           return Box({
             key: 'tu' + i,
             flexDirection: 'row',
             children: [
-              Text({ key: 'tu-n' + i, dimColor: true, children: [nm + ' '.repeat(6 - visible(nm))] }),
+              Text({ key: 'tu-n' + i, dimColor: true, children: [nm + ' '.repeat(Math.max(1, (nano ? 5 : 6) - visible(nm)))] }),
               Text({ key: 'tu-f' + i, color: stateColor(v), children: ['━'.repeat(filled)] }),
               Text({ key: 'tu-e' + i, dimColor: true, children: ['─'.repeat(MINI - filled)] }),
               Text({ key: 'tu-v' + i, color: stateColor(v), bold: true, children: [' ' + show(vals[i]).padStart(4, ' ')] }),
@@ -745,6 +907,7 @@ export function register(on) {
       })
       const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), mode, localHour(), terryCols, runEffort(), today()) })
       // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
+      if (!beside) return Box({ key: 'terry-alone', flexDirection: 'column', children: [dog] })
       if (beside) {
         const side = Box({ key: 'terry-side', flexDirection: 'column', height: TERRY_ROWS, justifyContent: 'space-between', children: [card, usageTable] })
         return Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: gap, children: [side] })] })

@@ -34,7 +34,7 @@ claude plugin install usage-meter@d3nim-claude-mods
 
 ### `/terry`
 
-![입력하면 짖고 꼬리를 흔들고, 엔터를 치면 응답이 끝날 때까지 달리고, 끝나면 헥헥거리다 조는 테리](docs/images/terry.gif)
+![입력하는 동안 꼬리를 흔들고, 엔터를 치면 응답이 끝날 때까지 달리고, 끝나면 헥헥거리다 조는 테리](docs/images/terry.gif)
 
 ### 추론 강도에 따라 달리기가 달라져요
 
@@ -48,6 +48,15 @@ claude plugin install usage-meter@d3nim-claude-mods
 
 ![읽기·검색 킁킁, 실행·수정 땅 파기, 웹 물어 오기, 허락 대기 말풍선, 실패 시무룩](docs/images/actions.gif)
 
+### 이럴 때도 반응해요
+
+- 테스트가 통과하면 뛰어올라 원반을 물고, 실패하면 고개를 떨구고 꼬리를 말아요.
+- 5시간 한도를 다 쓰면 문 앞에서 기다리다가, 풀리는 순간 짖으며 알려 줘요.
+- 하루 첫 입력엔 기지개를 켜며 하품하고, 저녁 6시~7시 반엔 가끔 밥을 먹어요.
+- 카드의 🐾 를 누르거나 `/terry pet` 하면 좋아해요. 쓰다듬은 횟수는 `/terry stats` 에 남아요.
+- 설날·추석엔 복주머니와 송편이, 설치한 지 1년 되는 날엔 케이크가 놓여요.
+- `/terry catch` · `droop` · `door` · `stretch` · `eat` 로 미리 볼 수 있어요.
+
 ### `/flame1`
 
 ![5시간 · 주간 · 대화 사용량을 파란 불꽃 높이로 보여 주는 밴드](docs/images/flame1.gif)
@@ -60,11 +69,14 @@ claude plugin install usage-meter@d3nim-claude-mods
 | `/terry run` | 20초 동안 달리는 모습 미리보기 (`sit` `wag` `bark` `happy` `sleep`, `stop` 으로 끝내기) |
 | `/terry run max` | 추론 강도별 달리기 미리보기 (`low` `medium` `high` `xhigh` `max`, `middle` · `중간` 도 됨) |
 | `/terry dig` | 도구별 동작 미리보기 (`sniff` `dig` `fetch` `ask` `sad`) |
-| `/terry stats` | 오늘의 기록: 요청 수, 토큰, 가장 오래 걸린 요청, 테리가 달린 거리 |
-| `/terry quad` · `/terry braille` | 그림 방식 바꾸기 (`/flame1` 도 같음) |
+| `/terry catch` | 상황별 동작 미리보기 (`catch` 테스트 통과, `droop` 테스트 실패, `door` 한도 대기, `stretch` 하루 첫 입력, `eat` 저녁) |
+| `/terry pet` | 테리 쓰다듬기 (카드의 🐾 를 눌러도 됨) |
+| `/terry pane` | 테리를 옆 창에 따로 크게 띄우기 (카드의 🐕 를 눌러도 됨) |
+| `/terry stats` | 오늘의 기록: 요청 수, 토큰, 가장 오래 걸린 요청, 테리가 달린 거리, 쓰다듬은 횟수 |
+| `/terry braille` · `/terry quad` | 그림 방식 바꾸기 (`/flame1` 도 같음). 테리는 점자(`braille`)에 맞춰 그렸어요 |
 | `/terry help` | 사용법 |
 
-테리는 평소엔 앉아 있다가, 입력을 시작하면 짖고, 치는 동안 꼬리를 흔들고, 엔터를 치면 응답이 끝날 때까지 달리고, 다 끝나면 헥헥거리고, 3분 동안 조용하면 졸아요. 하늘은 실제 시계를 따라 낮엔 해, 밤엔 달과 별이 뜨고, 날짜를 따라 봄엔 꽃잎, 여름밤엔 반딧불, 가을엔 낙엽, 겨울엔 눈이 내려요. 12/31 과 1/1 밤엔 불꽃놀이도 터져요.
+테리는 평소엔 앉아서 숨 쉬며 꼬리를 살랑이다가, 입력하는 동안 혀를 내밀고 꼬리를 흔들고, 엔터를 치면 응답이 끝날 때까지 달리고, 다 끝나면 헥헥거리고, 3분 동안 조용하면 졸아요. 하늘은 실제 시계를 따라 낮엔 해, 밤엔 달과 별이 뜨고, 날짜를 따라 봄엔 꽃잎, 여름밤엔 반딧불, 가을엔 낙엽, 겨울엔 눈이 내려요. 12/31 과 1/1 밤엔 불꽃놀이도 터져요.
 
 ### 색이 이상하게 보이면
 
@@ -77,7 +89,7 @@ export COLORTERM=truecolor
 ### Claude 밖에서 테리 보기
 
 ```bash
-node docs/preview/terry-view.mjs run --slow=4   # 숫자 키로 동작, e 로 강도 바꾸기, q 끝내기
+node docs/preview/terry-view.mjs   # ←→ 동작, e 강도, m 그림 방식, w 너비, t 시각, s 계절, y 명절, space 느리게, q 끝내기
 ```
 
 ## jev
