@@ -527,6 +527,8 @@ export const RUN_STYLES = {
   max: { set: 'run', speed: 2.2, ground: 85, lines: 0, len: 0, dust: false, fly: true },
 }
 export const runStyle = effort => RUN_STYLES[effort] || RUN_STYLES.high
+const CAPE_X = 27 // the flight pose's shoulders (sub-pixels from his left), where the cape starts
+const CAPE_BACK = 19 // how far back along his back it lies before it streams off behind
 const FLY_FRAME = 6 // in the run set (two in-betweens per key): key pose 4, stretched flat out in the air
 const SKY_COLS = 12 // room to the right of Terry for the sun, the moon and the stars
 const TRAIL_COLS = 5 // room to the left of Terry for speed lines and dust while he runs
@@ -876,6 +878,19 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   // (the traced leap is already drawn in the air, up to the top of the picture: it gets no extra hop)
   const hop = mood === 'catch' && !set.mouth && set.catchAt == null && catchPhase >= 0.42 && catchPhase < 0.82 ? Math.round(Math.sin((Math.PI * (catchPhase - 0.42)) / 0.4) * 1) : 0 // (the leap pose is already up in the air: lifted more, his head went off the top)
   const lift = running && style.fly ? 5 + Math.round(Math.sin(t * 6)) : hop
+  // the cape's run along his back, from the shoulders to the rump: a straight line between the top of his coat at each
+  // end (a tuft standing above it is covered too), as [x, top, bottom] on the canvas. Its bottom ends on a cell's last
+  // row, so no cell is shared by the red and his coat (a cell shows one colour: shared, the cape broke into pieces)
+  const capeBack = [], capeTail = []
+  if (running && style.fly) {
+    const topAt = x => { let y = 6; while (y < frame.length && !frame[y][x]) y++; return y }
+    const y0 = topAt(CAPE_X), y1 = topAt(CAPE_X - CAPE_BACK)
+    for (let u = 0; u <= CAPE_BACK; u++) {
+      const x = CAPE_X - u
+      const line = Math.round(y0 + ((y1 - y0) * u) / CAPE_BACK) - lift
+      capeBack.push([dogX + x, Math.min(topAt(x) - lift, line), (line + 2) | 3])
+    }
+  }
   if (lift && running && style.fly) {
     for (let x = dogX + 10; x < dogX + SW - 12; x++) put(x, ground, [34, 70, 34]) // his shadow on the grass
     // clouds racing by in the sky
@@ -886,19 +901,20 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
       for (let dx = -3; dx <= 3; dx++) put(cx + dx, cy, cloud)
       for (let dx = -1; dx <= 2; dx++) put(cx + dx, cy - 1, cloud)
     }
-    // the cape: a ribbon from his shoulders back past his tail, waving harder toward its free end
-    const ax = dogX + 26
-    const ay = 15 - lift
-    const L = 36
+    // the cape: lying on his back from the shoulders to the rump, then streaming back over his tail as a ribbon, waving
+    // harder toward its free end (both drawn over him, below: behind him, his tail cut the ribbon off from his back)
+    const ax = dogX + CAPE_X
+    const ay = capeBack[capeBack.length - 1][1]
+    const L = 30
     for (let u = 0; u <= L; u++) {
       const k = u / L
       const wave = Math.sin(u * 0.38 - t * 16) * (0.4 + 2.6 * k)
       const slope = Math.cos(u * 0.38 - t * 16)
-      const top = Math.round(ay - 1 - u * 0.1 + wave)
-      const thick = Math.round(3 + 4 * k)
+      const top = Math.round(ay - u * 0.1 + wave * Math.min(1, u / 4))
+      const thick = Math.round(4 + 3 * k)
       for (let w = 0; w < thick; w++) {
         const c = w === 0 ? [244, 92, 96] : slope < -0.3 ? [150, 22, 34] : [214, 38, 48]
-        put(ax - u, top + w, c)
+        capeTail.push([ax - CAPE_BACK - u, top + w, c])
       }
     }
   }
@@ -962,7 +978,9 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
       if (c) put(dogX + x, y - lift, c)
     }
   }
-  if (running && style.fly) for (const [x, y] of [[26, 17], [27, 17], [26, 18], [27, 18], [25, 18]]) put(dogX + x, y - lift, [214, 38, 48]) // the cape tied at his neck
+  // the cape over his back, its upper edge lit
+  for (const [x, top, bottom] of capeBack) for (let y = top; y <= bottom; y++) put(x, y, y === top ? [244, 92, 96] : [214, 38, 48])
+  for (const [x, y, c] of capeTail) put(x, y, c)
   // the request failed: a tear rolling down from his eye and a little rain cloud just above his drooping head
   if (mood === 'sad' || mood === 'droop') {
     let ex = -1, ey = -1
