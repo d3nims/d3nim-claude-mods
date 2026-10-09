@@ -42,7 +42,9 @@ let effortFrom = '없음' // 추론 강도를 어디서 읽었는지 (/terry deb
 let effort = null // 추론 강도: 요청마다 turn.step 에서 읽는다. 첫 요청 전이거나 강도가 없는 모델이면 null
 let style = 'flame1' // 'flame1' (불꽃 밴드) | 'terry' (강아지)
 let look = 'classic' // 테리 그림체: 'classic' (기본) | 'real' (참고 그림에서 따온 자세, 보류 중: /terry real 로만 켜짐)
-let mode = 'quad' // 'quad' (사분블록) | 'fine' (사분블록 + ▂▄▆, 가로 경계가 4단계로 매끈) | 'braille' (점자)
+let mode = null // 고른 그림 방식: 'quad' (사분블록) | 'fine' (사분블록 + ▂▄▆, 가로 경계가 4단계로 매끈) | 'braille' (점자)
+// 안 골랐으면 테리는 점자(점 하나하나 점자에 맞춰 그림), 불꽃 밴드는 사분블록
+const drawMode = () => mode ?? (style === 'terry' ? 'braille' : 'quad')
 
 // 임계치 알림: 같은 단계는 한 번만
 const lastTier = new Map()
@@ -280,11 +282,11 @@ async function statsText($) {
 // 사용법 안내 (불러올 때 알림창으로, /flame1 help 로도 볼 수 있다). 명령 하나당 한 줄.
 const guide = () =>
   [
-    'usage-meter 사용법 (지금: ' + (style === 'terry' ? '강아지' : '불꽃 밴드') + ', ' + mode + ')',
+    'usage-meter 사용법 (지금: ' + (style === 'terry' ? '강아지' : '불꽃 밴드') + ', ' + drawMode() + ')',
     '/flame1 quad    : 파란 불꽃 밴드, 꽉 찬 블록으로 그림',
     '/flame1 braille : 파란 불꽃 밴드, 점자로 그림 (더 곱지만 알알이 보일 수 있음)',
-    '/terry quad     : 달리는 강아지, 꽉 찬 블록으로 그림',
-    '/terry braille  : 달리는 강아지, 점자로 그림',
+    '/terry braille  : 달리는 강아지, 점자로 그림 (기본, 점 하나하나 다듬은 그림)',
+    '/terry quad     : 달리는 강아지, 꽉 찬 블록으로 그림 (블록용으로 그렸던 1.0.2 그림)',
     '/terry pane     : 테리를 옆 창에 따로 띄우기 (카드의 🐕 를 눌러도 됨)',
     '/terry fine     : 달리는 강아지, 촘촘한 블록으로 그림 (등선·배·머리 윤곽이 더 매끈)',
     '/terry run      : 20초 동안 달리는 모습 미리보기 (sit · wag · bark · happy · sleep 도 됨, stop 으로 끝내기)',
@@ -492,7 +494,7 @@ const openPane = $ => $.ui.open({ id: PANE, title: '테리' })
 
 // 같은 그림이면 그대로 두고, 바뀌었으면 타이머를 새로 건다. blit 이 거절되면(아직 안 그려졌을 수 있음) 몇 번 다시 시도한다.
 function runAnim($, requestId, key, columns, rows, build) {
-  const id = [requestId, key, columns, rows, mode].join('|')
+  const id = [requestId, key, columns, rows, drawMode()].join('|')
   if (anims.get(key)?.id === id) return
   stopAnim(key)
   const timer = $.clock.every(FRAME_MS, () => {
@@ -515,8 +517,8 @@ function runAnim($, requestId, key, columns, rows, build) {
 // 폭이 바뀌면 밴드를 새로 만든다
 let bandCache = null
 function bandFor(cols) {
-  if (!bandCache || bandCache.cols !== cols || bandCache.mode !== mode) {
-    bandCache = { cols, mode, band: makeBand(cols, FLAME_ROWS, mode) }
+  if (!bandCache || bandCache.cols !== cols || bandCache.mode !== drawMode()) {
+    bandCache = { cols, mode: drawMode(), band: makeBand(cols, FLAME_ROWS, drawMode()) }
   }
   return bandCache.band
 }
@@ -527,7 +529,7 @@ export function register(on) {
     await $.command.register({ name: 'terry', description: '사용량을 베들링턴 테리어가 달리는 화면으로 보여요 (뒤에 quad 또는 braille 을 붙이면 그림 방식 변경)' })
     style = (await $.store.get('style')) === 'terry' ? 'terry' : 'flame1'
     const savedMode = await $.store.get('mode')
-    mode = savedMode === 'braille' || savedMode === 'fine' ? savedMode : 'quad'
+    mode = savedMode === 'braille' || savedMode === 'fine' || savedMode === 'quad' ? savedMode : null
     look = (await $.store.get('look')) === 'real' ? 'real' : 'classic'
     try {
       stretchDay = (await $.store.get('stretchDay')) ?? null
@@ -752,7 +754,7 @@ export function register(on) {
       await $.store.set('style', style)
       stopAnim()
       $.ui.invalidate('ui.render')
-      const way = mode === 'quad' ? '사분블록(quad)' : mode === 'fine' ? '촘촘한 블록(fine)' : '점자(braille)'
+      const way = drawMode() === 'quad' ? '사분블록(quad)' : drawMode() === 'fine' ? '촘촘한 블록(fine)' : '점자(braille)'
       const lookText = style === 'terry' ? ' · 그림체: ' + (look === 'classic' ? '예전(classic)' : '새(real)') : ''
       return { text: (style === 'terry' ? '강아지(terry)' : '불꽃 밴드(flame1)') + ' 화면으로 바꿨어요 · 그림 방식: ' + way + lookText }
     })
@@ -772,7 +774,7 @@ export function register(on) {
     const Raster = 'Raster' in elements ? elements.Raster : null
     if (!Raster || e.surface !== 'terminal') return Text({ key: 'pane-none', dimColor: true, children: ['테리는 터미널 화면에서만 보여요'] })
     const cols = Math.max(TERRY_MIN_COLS, Math.min(TERRY_COLS, (e.props.bodyColumns || TERRY_COLS) - 1))
-    const scene = () => terryCells(mood(), nowMs(), mode, localHour(), cols, runEffort(), today())
+    const scene = () => terryCells(mood(), nowMs(), drawMode(), localHour(), cols, runEffort(), today())
     runAnim($, e.requestId, 'pane-terry', cols, TERRY_ROWS, scene)
     const m = mood()
     const vals = values()
@@ -839,7 +841,7 @@ export function register(on) {
       const tight = sideW < 33
       const mini = beside && sideW < 22
       const nano = beside && sideW < 15
-      runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), mode, localHour(), terryCols, runEffort(), today()))
+      runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), drawMode(), localHour(), terryCols, runEffort(), today()))
       const name = prettyModel(modelId)
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
       const moodText = moodLabel(m, tight) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
@@ -905,7 +907,7 @@ export function register(on) {
           })
         }),
       })
-      const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), mode, localHour(), terryCols, runEffort(), today()) })
+      const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), drawMode(), localHour(), terryCols, runEffort(), today()) })
       // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
       if (!beside) return Box({ key: 'terry-alone', flexDirection: 'column', children: [dog] })
       if (beside) {

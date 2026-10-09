@@ -4,6 +4,7 @@
 // is turned into one glyph (quadrant blocks or braille) with a foreground and a background, then packed for `Raster`.
 
 import SPRITE from './terrier-data.js'
+import QUAD_SPRITE from './terrier-quad-data.js'
 
 const DEFAULT = 0x01000000 // Raster's "terminal default colour"
 const BAR_H = 2 // thickness of the glowing gauge line, in sub-pixels
@@ -403,9 +404,38 @@ for (const set of [...Object.values(SETS), ...Object.values(REAL)]) {
   for (const f of set.frames) f.forEach((row, y) => { if (row.some(c => c)) bottom = Math.max(bottom, y) })
   set.drop = ground - bottom
 }
+// Blocks (quad, fine) draw the older frames, made for blocks; braille's frames are drawn dot by dot and blur together
+// in blocks. A mood the older set lacks borrows the braille frame, its greys lifted as braille lifts them (raw, the ear
+// and the hand-laid shading came out as black patches and dark stripes).
+const QPAL = QUAD_SPRITE.palette.map(hex)
+const BLOCK_GREY_LO = 150
+const liftBlock = c => {
+  if (!c || isFeature(c) || OUTLINE.has(c.join(',')) || Math.max(...c) - Math.min(...c) >= 14) return c
+  const v = Math.round(BLOCK_GREY_LO + (255 - BLOCK_GREY_LO) * (c[0] / 255))
+  return [v, v, Math.min(255, v + 4)]
+}
+const QUAD_SETS = {}
+for (const name of Object.keys(SETS)) {
+  const old = QUAD_SPRITE.sets[name]
+  QUAD_SETS[name] = old
+    ? { ...old, flyFrame: 4, frames: old.frames.map(rows => rows.map(row => [...row].map(c => (c === '.' ? null : QPAL[QUAD_SPRITE.alphabet.indexOf(c)])))) }
+    : { ...SETS[name], frames: SETS[name].frames.map(f => f.map(row => row.map(liftBlock))) }
+}
+for (const set of Object.values(QUAD_SETS)) {
+  let bottom = 0
+  for (const f of set.frames) f.forEach((row, y) => { if (row.some(c => c)) bottom = Math.max(bottom, y) })
+  set.drop = ground - bottom // (the older sleep lay two rows lower: drawn that much higher)
+}
+const setsFor = mode => (mode === 'braille' ? SETS : QUAD_SETS)
 export const DOG_ROWS = Math.ceil((ground + 1) / 4)
 export const DOG_COLS = Math.ceil(SW / 2)
 
+// a frame moved down (or up) onto the grass by its set's drop
+function shifted(set, frame) {
+  if (set.drop > 0) return [...Array.from({ length: set.drop }, () => Array(SW).fill(null)), ...frame.slice(0, frame.length - set.drop)]
+  if (set.drop < 0) return [...frame.slice(-set.drop), ...Array.from({ length: -set.drop }, () => Array(SW).fill(null))]
+  return frame
+}
 // the frame at a point (0-1) of one pass through a set, by its frames' own durations (the catch: one pass per throw)
 function frameAt(set, phase) {
   const total = set.durations.reduce((a, b) => a + b, 0)
@@ -430,8 +460,9 @@ export function dogCells(columns, pct, ms, mode) {
   const TW = columns * 2
   const canvas = Array.from({ length: DOG_ROWS * 4 }, () => Array(TW).fill(null))
   const t = ms / 1000
-  const set = pct >= 97 ? SETS.sleep : pct >= 80 ? SETS.pant : SETS.run
-  const frame = set.frames[pick(set, ms)]
+  const S = setsFor(mode)
+  const set = pct >= 97 ? S.sleep : pct >= 80 ? S.pant : S.run
+  const frame = shifted(set, set.frames[pick(set, ms)])
   // The fire is the gauge: exactly pct of the width, nothing at 0%. Terry stands with his front paws at its end.
   const lit = pct <= 0 ? 0 : Math.max(1, Math.round((Math.min(100, pct) / 100) * TW))
   const front = lit - 1
@@ -626,12 +657,12 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   const t = ms / 1000
   const style = runStyle(effort)
   const running = mood === 'run'
-  const sets = date && date.style === 'real' ? { ...SETS, ...REAL } : SETS
+  const sets = mode !== 'braille' ? QUAD_SETS : date && date.style === 'real' ? { ...SETS, ...REAL } : SETS
   const set = (running ? sets[style.set] : sets[MOOD_FRAMES[mood]]) || sets.sit
   // flying, he holds the stretched-out flight pose of the gallop (legs reaching fore and aft) instead of striding
   // catching: crouch while the frisbee comes, leap for it, land with it (the frame follows the throw, not a timer)
   const throwPhase = mood === 'catch' ? (ms / 1600) % 1 : 0
-  const index = running && style.fly ? FLY_FRAME
+  const index = running && style.fly ? set.flyFrame ?? FLY_FRAME
     // (four frames: watching it come, a crouch, the leap held at the top, landed; the older three-frame set has no crouch)
     : mood === 'catch' && set.catchAt != null ? frameAt(set, throwPhase)
     : mood === 'catch' ? (set.frames.length >= 4 ? (throwPhase < 0.36 ? 0 : throwPhase < 0.44 ? 1 : throwPhase < 0.82 ? 2 : 3) : throwPhase < 0.42 ? 0 : throwPhase < 0.82 ? 1 : 2)
@@ -644,7 +675,7 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   const fetchBack = mood === 'fetch' && fetchPhase >= 0.5
   if (fetchBack) frame = frame.map(row => row.slice().reverse())
   const mouthAt = set.mouth && set.mouth[index] ? [set.mouth[index][0], set.mouth[index][1] + Math.max(0, set.drop)] : null
-  if (set.drop > 0) frame = [...Array.from({ length: set.drop }, () => Array(SW).fill(null)), ...frame.slice(0, frame.length - set.drop)]
+  frame = shifted(set, frame)
   const trail = Math.max(1, Math.min(TRAIL_COLS, columns - DOG_COLS - 1))
   const homeX = trail * 2
   const away = TW - homeX + 6
@@ -953,7 +984,6 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
       put(cx - 4 + i * 4, cy + 1 + Math.floor(age * 3), [120, 166, 236])
     }
   }
-  // waiting for a permission: a white speech bubble beside his head, lined up on whole cells so a real '?' fits in it
   // waiting for a permission: a rounded white speech bubble beside his head, lined up on whole cells so a real '?' fits
   // in its middle; to the right of his head when there is room, otherwise over his back
   const BW = 5 // cells
@@ -961,7 +991,7 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   const bubbleCol = rightCol + BW <= columns ? rightCol : Math.max(0, Math.floor(dogX / 2) + 2)
   const bubbleLeft = bubbleCol < rightCol
   if (mood === 'ask') {
-    const bx0 = bubbleCol * 2, W = BW * 2, Hb = 12
+    const bx0 = bubbleCol * 2, W = BW * 2, Hb = 16
     const inset = y => (y === 0 || y === Hb - 1 ? 2 : y === 1 || y === Hb - 2 ? 1 : 0) // rounded corners
     const inside = (x, y) => y >= 0 && y < Hb && x >= inset(y) && x < W - inset(y)
     if (mode === 'braille') {
@@ -971,9 +1001,11 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
         const edge = !(inside(x - 1, y) && inside(x + 1, y) && inside(x, y - 1) && inside(x, y + 1))
         if (inside(x, y)) put(bx0 + x, y, edge ? [240, 240, 246] : null) // (inside it, no snow or petals)
       }
-      // a bold '?', two dots thick, so it still reads through the font's gaps between braille rows
+      // a bold '?', two dots thick, so it still reads through the font's gaps between braille rows; it fills the two
+      // middle cell rows exactly, so no cell holds both the '?' and the outline (a cell has one colour: the outline's
+      // white took over the '?' where they shared one)
       const Q = ['.####.', '##..##', '....##', '...##.', '..##..', '..##..', '......', '..##..']
-      if (Math.floor(ms / 600) % 4 !== 3) Q.forEach((row, y) => [...row].forEach((c, x) => { if (c === '#') put(bx0 + 2 + x, 2 + y, [255, 214, 102]) }))
+      if (Math.floor(ms / 600) % 4 !== 3) Q.forEach((row, y) => [...row].forEach((c, x) => { if (c === '#') put(bx0 + 2 + x, 4 + y, [255, 214, 102]) }))
     } else for (let y = 0; y < Hb; y++) for (let x = inset(y); x < W - inset(y); x++) put(bx0 + x, y, [240, 240, 246])
     // the tail, a little hook toward his head
     const tail = bubbleLeft ? [[W - 2, Hb], [W - 1, Hb], [W, Hb + 1], [W + 1, Hb + 2]] : [[1, Hb], [0, Hb], [-1, Hb + 1], [-2, Hb + 2]]
