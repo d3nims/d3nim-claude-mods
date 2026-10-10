@@ -55,6 +55,8 @@ test('by default (shadow) a worker-sized request is still answered by Opus, and 
   await $.turn.complete({ turnId: 't' + n, answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' } as never)
   const log = ((await $.command.run({ command: 'auto-model', args: 'log' } as never)) as any).text
   expect(log).toMatch(/일꾼 후보 \(shadow\): 1번 \(쓰기 1/)
+  const status = ((await $.command.run({ command: 'auto-model', args: '' } as never)) as any).text
+  expect(status).toMatch(/일꾼을 켰다면 약 \$[\d.]+ 더 절약 가능 \(shadow\)/)
 })
 
 // (A test's own hook beneath stands in for core, and core alone hands back a started subagent's agentId: so a test can

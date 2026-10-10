@@ -550,6 +550,24 @@ async function autoRoute($) {
     return null
   }
 }
+// auto-model 의 절약: 오늘 이 컴퓨터에서 내 사용량 대비 몇 % 아꼈는지 (모르면 달러). 아낀 게 있을 때만 카드 아래 한 줄.
+// 게이지 % 환산은 계정을 같이 쓰면 어림값이라 /auto-model 상세에만 둔다
+const AUTO_SAVING = { plugin: 'auto-model', key: 'saving' }
+async function autoSaving($) {
+  try {
+    const { value } = await $.state.get(AUTO_SAVING)
+    return value && value.usdToday > 0.005 ? value : null
+  } catch {
+    return null
+  }
+}
+function savingRow(sv, Text, width) {
+  if (!sv) return null
+  const pct = sv.myPct != null ? sv.myPct.toFixed(sv.myPct < 10 ? 1 : 0) + '%' : null
+  const text = [pct ? `💰 오늘 내 사용량의 약 ${pct} 아낌` : `💰 오늘 약 $${sv.usdToday.toFixed(2)} 아낌`, pct ? `💰 약 ${pct} 아낌` : null]
+    .find(t => t && visible(t) <= width)
+  return text ? Text({ key: 'auto-saving', dimColor: true, children: [text] }) : null
+}
 const familyName = id => String(id || '').replace(/^claude-/, '').split('-')[0]
 const manTokens = n => (n >= 10000 ? Math.round(n / 10000) + '만' : Math.round(n / 1000) + '천')
 function hintRow($, hint, Box, Text, Button, width) {
@@ -997,7 +1015,9 @@ export function register(on) {
       })
       const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), drawMode(), localHour(), terryCols, runEffort(), today()) })
       const hint = hintRow($, await autoHint($), Box, Text, Button, cols)
-      const withHint = top => (hint ? Box({ key: 'terry-with-hint', flexDirection: 'column', children: [top, hint] }) : top)
+      const saving = savingRow(await autoSaving($), Text, cols)
+      const extras = [hint, saving].filter(Boolean)
+      const withHint = top => (extras.length ? Box({ key: 'terry-with-hint', flexDirection: 'column', children: [top, ...extras] }) : top)
       // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
       if (!beside) return withHint(Box({ key: 'terry-alone', flexDirection: 'column', children: [dog] }))
       if (beside) {

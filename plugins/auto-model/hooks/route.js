@@ -125,3 +125,20 @@ export function missedWorkerOf(tools, usage) {
 }
 /** 기록용 요청 앞부분: 공백을 접고 80자까지 (붙여 넣은 긴 글은 잘린다) */
 export const promptHead = text => String(text || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+
+// ---- 절약 어림값 (API 환산, 구독제에서는 사용량 게이지를 아낀 만큼) ----
+/** 일꾼이 맡은 일을 원래 모델이 했다면: 첫 단계는 대화를 읽거나(캐시 따뜻) 다시 쓰고(식음), 나머지 단계는 캐시로 읽고, 답 약 800 토큰 */
+export function opusWouldWorker(model, ctx, warm, task) {
+  const p = priceOf(model, ctx)
+  const steps = task === 'write' ? 3 : 2
+  return (ctx / 1e6) * (warm ? p.read : p.input * 2) + ((steps - 1) * ctx / 1e6) * p.read + (800 / 1e6) * p.output
+}
+/** 일꾼 턴 뒤 원래 모델이 붙은 부분(요청 + 일꾼 답)을 새로 쓰는 값: 글자 약 2.5자 = 1 토큰 */
+export function appendCost(model, chars) {
+  return ((chars / 2.5) / 1e6) * priceOf(model, 0).input * 2
+}
+/** 쉬고 와서 압축을 원래 모델이 했다면: 대화 전체를 다시 쓰고(식음) 요약을 쓰는 값 */
+export function opusWouldCompact(model, ctx, outTokens) {
+  const p = priceOf(model, ctx)
+  return (ctx / 1e6) * p.input * 2 + ((outTokens || 6000) / 1e6) * p.output
+}

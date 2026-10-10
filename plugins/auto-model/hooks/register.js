@@ -31,11 +31,12 @@
 // /auto-model compact [남길 내용] · dismiss · preview : 압축 / 이번 제안 닫기 / 제안 미리 보기 1분
 // /auto-model warn <퍼센트> | off : 작업 중 대화가 이만큼 차면 압축 권하기 (기본 85)
 
-import { MODELS, familyOf, isRejection, isSearchy, missedWorkerOf, prettyName, promptHead, ruleOf, taskOf, turnCost, usageCost, workerEstimate } from './route.js'
+import { MODELS, appendCost, familyOf, isRejection, isSearchy, missedWorkerOf, opusWouldCompact, opusWouldWorker, prettyName, promptHead, ruleOf, taskOf, turnCost, usageCost, workerEstimate } from './route.js'
 
 const HINT = { plugin: 'auto-model', key: 'hint' }
 const ROUTE = { plugin: 'auto-model', key: 'route' }
 const MEMORY = { plugin: 'auto-model', key: 'memory' }
+const SAVING = { plugin: 'auto-model', key: 'saving' }
 
 const DEFAULTS = { enabled: true, ttlMinutes: 60, minTokens: 150000, route: 'auto', pin: null, mainHaiku: false, lightSwitch: false, worker: 'shadow', warnPct: 85 }
 let settings = { ...DEFAULTS }
@@ -194,6 +195,175 @@ async function compactNow($, instructions, mode) {
     }
   })()
   return kind === 'cold' ? '압축을 시작할게요 (쉬고 와서 캐시가 식었으니 Sonnet 이 요약해요. 끝나면 알려 드려요)' : '압축을 시작할게요 (끝나면 알려 드려요)'
+}
+
+// 오늘·이번 주 절약 누적 (API 환산 어림값). 일꾼이 실패해 쓴 값은 손해로 빼서 순절약으로 보인다. shadow 는 '가능'으로 따로
+const dayKey = at => new Date(at).toLocaleDateString('sv-SE') // YYYY-MM-DD (컴퓨터 시간대)
+async function addSaving($, kind, amount) {
+  try {
+    const now = await $.clock.now()
+    const all = (await $.store.get('savings')) || {}
+    const d = all[dayKey(now)] || { net: 0, workers: 0, compactions: 0, losses: 0, potential: 0, shadowTurns: 0 }
+    if (kind === 'worker') (d.net += amount), d.workers++
+    else if (kind === 'compact') (d.net += amount), d.compactions++
+    else if (kind === 'loss') (d.net -= amount), (d.losses += amount)
+    else if (kind === 'potential') (d.potential += amount), d.shadowTurns++
+    all[dayKey(now)] = d
+    for (const k of Object.keys(all).sort().slice(0, -14)) delete all[k] // 2주치만
+    await $.store.set('savings', all)
+  } catch {}
+}
+// 오늘 내 사용량 대비 아낀 비율 (%): 순절약 / (실제 쓴 값 + 순절약). 쓴 값을 아직 모르거나 아낀 게 없으면 null
+const myShare = (spent, net) => (spent > 0 && net > 0 ? (net / (spent + net)) * 100 : null)
+async function savingsText($) {
+  let all = {}
+  try {
+    all = (await $.store.get('savings')) || {}
+  } catch {}
+  const now = await $.clock.now()
+  const today = all[dayKey(now)]
+  const week = Object.entries(all).filter(([k]) => k >= dayKey(now - 6 * 86400000))
+  const wsum = week.reduce((a, [, d]) => a + d.net, 0)
+  const wpot = week.reduce((a, [, d]) => a + (d.potential || 0), 0)
+  if (!today && !week.length) return null
+  const t = today || { net: 0, workers: 0, compactions: 0, losses: 0, potential: 0 }
+  const per = await dollarsPerPct($)
+  const spent = (t.spent || 0) + pendingSpent
+  const share = myShare(spent, t.net)
+  const mine = share != null ? `오늘 내 사용량의 약 ${Math.round(share)}% 아낌 (실제 ${usd(spent)} 씀) · ` : ''
+  const gauge = per.five_hour && per.seven_day ? `게이지로 5시간 약 ${(Math.max(0, t.net) / per.five_hour).toFixed(1)}% · 주간 약 ${(Math.max(0, wsum) / per.seven_day).toFixed(1)}% · ` : `게이지 보정 중 (표본 5시간 ${per.n5}/5 · 주간 ${per.n7}/5) · `
+  return '💰 ' + mine + gauge + `오늘 약 ${usd(Math.max(0, t.net))} 절약 (일꾼 ${t.workers}번 · 압축 ${t.compactions}번` + (t.losses ? ` · 실패 손해 ${usd(t.losses)} 뺌` : '') + `) · 최근 7일 약 ${usd(wsum)}` +
+    (wpot ? ` · 일꾼을 켰다면 약 ${usd(wpot)} 더 절약 가능 (shadow)` : '') + ' (API 환산 어림값. 게이지 % 는 이 컴퓨터 세션들의 비용과 게이지 변화로 어림한 1% 당 금액으로 환산)'
+}
+
+// ---- 게이지 보정: 'API 환산 $' 를 사용자가 매일 보는 5시간·주간 게이지 % 로 ----
+// 구독 한도의 % 기준은 공개되지 않아서, 이 컴퓨터의 모든 세션이 쓴 API 환산 비용과 게이지 % 의 변화를 같이 보며 '1% 당 약 $X' 를
+// 창(5시간·주간)마다 따로 어림한다. 세션마다 자기 누적 비용을 store 에 적고(cost:<세션>), 합쳐서 본다. 창이 초기화되면(resetsAt 이
+// 바뀌면) 기준점을 새로 잡아 초기화 직후의 급락을 사용으로 읽지 않는다. 다른 컴퓨터의 세션은 못 보니 1% 당 값이 작게 나올 수 있다.
+let sessionCost = 0 // 이 세션이 쓴 API 환산 비용 누적 (메인 + 서브에이전트 + 일꾼)
+let pendingSpent = 0 // 아직 오늘 기록(savings[날짜].spent)에 더하지 않은 비용
+let costSavedAt = 0
+const calib = { five_hour: null, seven_day: null } // 기준점 { resetsAt, pct, cost }
+async function addCost($, model, usage) {
+  if (!usage) return
+  const c = usageCost(model || usage.model, usage)
+  sessionCost += c
+  pendingSpent += c
+}
+async function flushCost($) {
+  if (!sessionId) return
+  try {
+    const now = await $.clock.now()
+    if (now - costSavedAt < 20000) return
+    costSavedAt = now
+    await $.store.set('cost:' + sessionId, { cum: sessionCost, at: now })
+    if (pendingSpent > 0) {
+      // 오늘 이 컴퓨터에서 실제로 쓴 값 (카드의 '내 사용량 대비 %' 의 분모)
+      const all = (await $.store.get('savings')) || {}
+      const d = all[dayKey(now)] || { net: 0, workers: 0, compactions: 0, losses: 0, potential: 0, shadowTurns: 0 }
+      d.spent = (d.spent || 0) + pendingSpent
+      pendingSpent = 0
+      all[dayKey(now)] = d
+      await $.store.set('savings', all)
+    }
+    const idx = (await $.store.get('cost-index')) || []
+    if (!idx.includes(sessionId)) await $.store.set('cost-index', [...idx, sessionId].slice(-40))
+  } catch {}
+}
+async function totalCost($) {
+  let sum = 0
+  try {
+    const idx = (await $.store.get('cost-index')) || []
+    for (const id of idx) {
+      if (id === sessionId) continue
+      const c = await $.store.get('cost:' + id)
+      if (c && c.cum) sum += c.cum
+    }
+  } catch {}
+  return sum + sessionCost
+}
+async function calibrate($) {
+  let limits = []
+  try {
+    limits = (await $.session.usage()).rateLimits || []
+  } catch {}
+  if (!limits.length) return
+  const cost = await totalCost($)
+  let samples = {}
+  try {
+    samples = (await $.store.get('gauge-samples')) || {}
+  } catch {}
+  let changed = false
+  for (const kind of ['five_hour', 'seven_day']) {
+    const l = limits.find(x => x.kind === kind)
+    if (!l || l.percentUsed == null) continue
+    const base = calib[kind]
+    if (!base || base.resetsAt !== l.resetsAt || l.percentUsed < base.pct) {
+      calib[kind] = { resetsAt: l.resetsAt, pct: l.percentUsed, cost } // 새 창이거나 처음: 기준점만
+      continue
+    }
+    const dp = l.percentUsed - base.pct
+    const dc = cost - base.cost
+    if (dp >= 2) {
+      // 2%p 이상 올랐을 때 한 표본 (게이지가 정수로 움직여 작은 변화는 오차가 크다). 이 컴퓨터 세션이 쓴 게 거의 없으면 버린다
+      if (dc > 0.05) {
+        const list = samples[kind] || []
+        list.push(dc / dp)
+        samples[kind] = list.slice(-30)
+        changed = true
+      }
+      calib[kind] = { resetsAt: l.resetsAt, pct: l.percentUsed, cost }
+    }
+  }
+  if (changed) {
+    try {
+      await $.store.set('gauge-samples', samples)
+    } catch {}
+  }
+}
+// 1% 당 약 $X: 표본 5개 이상일 때 80번째 백분위 (그 전엔 보정 중). 같은 계정을 다른 사람·다른 PC 와 같이 쓰면 그쪽 사용도 게이지를
+// 올려서 Δ$/Δ% 는 늘 작은 쪽으로만 치우친다 (분자엔 이 컴퓨터 비용만 들어가니까). 그래서 가운데 값이 아니라 높은 쪽을 쓴다
+async function dollarsPerPct($) {
+  let samples = {}
+  try {
+    samples = (await $.store.get('gauge-samples')) || {}
+  } catch {}
+  const med = list => {
+    if (!list || list.length < 5) return null
+    const a = [...list].sort((x, y) => x - y)
+    return a[Math.min(a.length - 1, Math.floor(a.length * 0.8))]
+  }
+  return { five_hour: med(samples.five_hour), seven_day: med(samples.seven_day), n5: (samples.five_hour || []).length, n7: (samples.seven_day || []).length }
+}
+// 카드에 보이는 절약: 오늘 내 사용량 대비 % (게이지 % 는 /auto-model 상세에 참고용)
+async function publishSaving($) {
+  let all = {}
+  try {
+    all = (await $.store.get('savings')) || {}
+  } catch {}
+  const now = await $.clock.now()
+  const todayRec = all[dayKey(now)] || {}
+  const today = todayRec.net || 0
+  const spent = (todayRec.spent || 0) + pendingSpent
+  let weekStart = now - 6 * 86400000
+  try {
+    const l = ((await $.session.usage()).rateLimits || []).find(x => x.kind === 'seven_day')
+    if (l && l.resetsAt) weekStart = Date.parse(l.resetsAt) - 7 * 86400000 // 이번 주간 창이 시작된 때
+  } catch {}
+  const week = Object.entries(all).filter(([k]) => k >= dayKey(weekStart)).reduce((a, [, d]) => a + d.net, 0)
+  const per = await dollarsPerPct($)
+  const value = {
+    usdToday: Math.max(0, today),
+    usdWeek: Math.max(0, week),
+    fivePct: per.five_hour ? Math.max(0, today) / per.five_hour : null,
+    weekPct: per.seven_day ? Math.max(0, week) / per.seven_day : null,
+    calibrated: !!(per.five_hour && per.seven_day),
+    // 오늘 내 사용량 대비 아낀 비율: 순절약 / (실제 쓴 값 + 순절약). 이 컴퓨터 숫자만 쓰니 계정을 같이 써도 정확하다
+    myPct: myShare(spent, today),
+  }
+  try {
+    await $.state.set(SAVING, value)
+  } catch {}
 }
 
 async function logCompaction($, c) {
@@ -391,6 +561,7 @@ async function runWorker($, work) {
   workerIds.add(sp.agentId)
   const done = await Promise.race([new Promise(resolve => workerWaiters.set(sp.agentId, resolve)), $.clock.sleep(WORKER_WAIT_MS).then(() => null)])
   workerWaiters.delete(sp.agentId)
+  if (done && done.usage) await addCost($, done.usage.model || sp.model, done.usage) // (우리 일꾼의 단계는 우리 훅을 건너뛰어서 여기서 센다)
   if (!done) return { failed: '시간 초과', agentId: sp.agentId }
   if (done.isAborted) return { failed: '중단됨', agentId: sp.agentId }
   const answer = String(done.answer || '')
@@ -400,6 +571,13 @@ async function runWorker($, work) {
 
 async function statusText($) {
   const lines = []
+  const sv = await savingsText($)
+  if (sv) lines.push(sv)
+  const per = await dollarsPerPct($)
+  lines.push(per.five_hour && per.seven_day
+    ? `게이지 환산: 5시간 1% ≈ $${per.five_hour.toFixed(2)} · 주간 1% ≈ $${per.seven_day.toFixed(2)} (이 컴퓨터 세션들의 비용과 게이지 변화로 어림, 표본 ${per.n5}·${per.n7}개)`
+    : `게이지 환산 보정 중 (표본 5시간 ${per.n5}/5 · 주간 ${per.n7}/5)`)
+  lines.push('(같은 계정을 다른 사람·다른 PC 와 같이 쓰면 게이지 환산은 어림값이에요. 내 사용량 대비 % 는 이 컴퓨터 숫자만 써서 정확해요)')
   const mode = modeOf()
   lines.push('auto-model ' + (settings.enabled ? '켜짐' : '꺼짐') + ' · 자동 전환: ' + { auto: '켜짐', off: '꺼짐', stopped: '/model 로 직접 골라서 이 세션은 멈춤', pin: (settings.pin || '') + ' 고정' }[mode] + (settings.mainHaiku ? ' · 메인 Haiku 허용' : ''))
   if (route) lines.push(`지금: ${prettyName(route.model)}` + (familyOf(route.model) !== familyOf(route.base) ? ` (원래 ${prettyName(route.base)})` : '') + ` · ${route.reason}`)
@@ -474,6 +652,7 @@ async function logText($) {
       `  ${d.shadow ? '[shadow] ' : ''}${timeText(d.at)} · ${prettyName(d.from)}→${prettyName(d.to)} · ${d.reason}` +
         (d.shadow && d.next ? ` · 다음 턴: ${d.next.rule}` : '') +
         (d.prompt ? ` · "${d.prompt.slice(0, 40)}"` : '') +
+        (d.actualUsd != null ? ` · [실제 약 ${usd(d.actualUsd)} / 원래 모델이었다면 약 ${usd(d.opusWouldUsd)} (대화 ${tokensText(d.ctx || 0)}, 캐시 ${d.baseWarm ? '따뜻' : '식음'}, ${d.steps}단계 가정)]` : '') +
         (d.missedWorker ? ` · [놓친 일꾼 후보: ${d.missedWorker.task === 'write' ? '쓰기' : '찾기'} · ${d.missedWorker.why}]` : '') +
         (d.workerShadow ? ` · [일꾼 후보: ${d.workerShadow.task === 'write' ? '쓰기' : '찾기·읽기'}, ${prettyName(d.workerShadow.model).split(' ')[0]} 였다면 약 ${usd(d.workerShadow.est)}]` : '') +
         (d.ctx ? ` · ${tokensText(d.ctx)}` : '') +
@@ -497,13 +676,22 @@ export function register(on) {
     await restoreMemory($)
     await $.command.register({ name: 'auto-model', description: '캐시를 아끼며 모델을 골라요: 쉰 뒤 압축 제안, 가벼운 요청 자동 전환 (on · off · auto · manual · pin · log)' })
     $.clock.every(30000, () => void check($))
+    $.clock.every(60000, () => void (async () => {
+      await flushCost($)
+      await calibrate($)
+      await publishSaving($)
+    })())
     return r
   })
 
   // 메인 대화의 모델 호출: 첫 단계에서 모델을 정하고 그 턴 동안 유지, 응답마다 시각·크기·답한 모델을 적는다
   // (서브에이전트의 호출은 메인 캐시와 무관해서 건드리지 않는다)
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId) return yield* next(e)
+    if (e.agentId) {
+      const ra = yield* next(e)
+      if (ra && ra.usage) await addCost($, ra.usage.model, ra.usage) // 서브에이전트도 같은 게이지를 쓴다
+      return ra
+    }
     liveTurnId = e.turnId
     // 일꾼에게 맡길 턴: 첫 단계에서 Opus 대신 일꾼을 띄우고, 일꾼의 답을 이 턴의 답으로 낸다
     const work = e.index === 0 ? pendingWork : null
@@ -522,11 +710,23 @@ export function register(on) {
         entry.reason = `일꾼 ${res.failed} → 원래 모델로`
         entry.to = e.model
         await remember($, entry)
+        if (res.usage) await addSaving($, 'loss', usageCost(res.usage.model || work.model, res.usage)) // 헛쓴 일꾼 값
         return yield* next(e) // 못 하면 이 턴은 Opus 가
       }
       const name = prettyName(res.model || work.model).split(' ')[0]
       const secs = Math.round(((await $.clock.now()) - started) / 1000)
-      const text = (res.failed ? `🐕 ${name} 일꾼이 맥락이 부족하다고 했어요. 다음 요청은 원래 모델이 이어받아요.\n\n` : `🐕 ${name} 가 처리했어요 (일꾼, ${secs}초)\n\n`) + (res.answer || '')
+      // 절약: 실제(일꾼 사용량 + 원래 모델이 붙은 부분을 새로 쓰는 값) vs 원래 모델이 했다면 (대화 크기·캐시 상태·단계 수로 어림)
+      const wModel = (res.usage && res.usage.model) || res.model || work.model
+      const ctxNow = last ? last.tokens : 0
+      const baseWarm = warmAt[familyOf(e.model)] != null && started - warmAt[familyOf(e.model)] < settings.ttlMinutes * 60000
+      const actual = (res.usage ? usageCost(wModel, res.usage) : workerEstimate(wModel)) + appendCost(e.model, (work.text || '').length + (res.answer || '').length)
+      const would = opusWouldWorker(e.model, ctxNow, baseWarm, work.task)
+      Object.assign(entry, { actualUsd: actual, opusWouldUsd: would, baseWarm, steps: work.task === 'write' ? 3 : 2 })
+      const baseName = prettyName(e.model).split(' ')[0]
+      const savingLine = res.failed ? '' : `\n\n💰 ${name} 처리 · 실제 약 ${usd(actual)} · ${baseName}였다면 약 ${usd(would)} → 약 ${usd(Math.max(0, would - actual))} 절약`
+      if (res.failed) await addSaving($, 'loss', actual)
+      else await addSaving($, 'worker', would - actual)
+      const text = (res.failed ? `🐕 ${name} 일꾼이 맥락이 부족하다고 했어요. 다음 요청은 원래 모델이 이어받아요.\n\n` : `🐕 ${name} 가 처리했어요 (일꾼, ${secs}초)\n\n`) + (res.answer || '') + savingLine
       if (res.failed) cooldown = Math.max(cooldown, 1)
       entry.reason = res.failed ? '일꾼: 맥락 부족' : `일꾼 (${work.task === 'write' ? '쓰기' : '찾기·읽기'}${work.manual ? ', 손으로' : ''})`
       await remember($, entry)
@@ -554,6 +754,7 @@ export function register(on) {
     }
     const r = yield* next(model && model !== e.model ? { ...e, model } : e)
     if (r && r.usage) {
+      await addCost($, r.usage.model, r.usage)
       const now = await $.clock.now()
       last = { at: now, tokens: contextOf(r.usage), model: r.usage.model }
       warmAt[familyOf(r.usage.model)] = now
@@ -644,6 +845,10 @@ export function register(on) {
     // 사후 판정: 원래 모델이 처리한 메인 턴이 사실 일꾼으로 충분했는지, 그 턴의 실제 도구 사용과 출력으로 본다
     if (!e.agentId && e.turnId) {
       const d = [...decisions].reverse().find(x => x.turnId === e.turnId)
+      if (d && d.workerShadow && d.usage && !d.potentialCounted) {
+        d.potentialCounted = true
+        await addSaving($, 'potential', Math.max(0, usageCost(d.to, d.usage) - d.workerShadow.est))
+      }
       if (d && !d.worker && d.usage) {
         const miss = missedWorkerOf(turnTools.get(e.turnId), d.usage)
         if (miss) {
@@ -695,6 +900,15 @@ export function register(on) {
       await clearHint($)
       if (mode) compactHandled = true
       await logCompaction($, { trigger: e.trigger, mode, model, before: r.tokensBefore, after: r.tokensAfter, usage: r.usage })
+      if (r.usage) await addCost($, model || current || sessionBase || MODELS.opus, r.usage) // 압축도 실제로 쓴 값
+      if (model && r.usage) {
+        // 쉬고 와서 Sonnet 이 압축: 원래 모델이 대화 전체를 다시 써서 요약했다면 대비
+        const actual = usageCost(model, r.usage)
+        const base = current || sessionBase || MODELS.opus
+        const would = opusWouldCompact(base, r.tokensBefore || (r.usage.input_tokens || 0) + (r.usage.cache_read_input_tokens || 0) + (r.usage.cache_creation_input_tokens || 0), r.usage.output_tokens)
+        await addSaving($, 'compact', would - actual)
+        $.ui.toast(`📦 Sonnet 압축 약 ${usd(actual)} · ${prettyName(base).split(' ')[0]}였다면 약 ${usd(would)} → 약 ${usd(Math.max(0, would - actual))} 절약`)
+      }
     }
     return r
   }).catch(($, e, next) => next(e))

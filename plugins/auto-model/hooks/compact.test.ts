@@ -82,6 +82,8 @@ test('after a break, the card\'s compact button has Sonnet summarize, with the u
   expect(r.messages[0].text).toMatch(/3\. push 는 하지 마/)
   const status = ((await $.command.run({ command: 'auto-model', args: '' } as never)) as any).text
   expect(status).toMatch(/쉬고 와서 · Sonnet 요약/)
+  expect(status).toMatch(/오늘 약 \$[\d.]+ 절약 \(일꾼 0번 · 압축 1번\)/) // Opus would have rewritten 400K at $8/MTok
+  expect(status).toMatch(/💰 오늘 내 사용량의 약 \d+% 아낌 \(실제 \$[\d.]+ 씀\)/) // what this computer spent today, the summary included
 })
 
 test('while working, the card\'s button keeps the main model but adds the user messages verbatim', async ($, on) => {

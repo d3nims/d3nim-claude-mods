@@ -41,8 +41,21 @@ export type AutoModelMemory = {
   lastAnswer: string
 }
 
+// 카드에 보이는 절약: 보정이 됐으면 게이지 %, 아니면 달러
+export type AutoModelSaving = {
+  usdToday: number
+  usdWeek: number
+  /** 오늘 아낀 만큼의 5시간 게이지 % (보정 전엔 null) */
+  fivePct: number | null
+  /** 이번 주간 창에서 아낀 만큼의 주간 게이지 % (보정 전엔 null) */
+  weekPct: number | null
+  calibrated: boolean
+  /** 오늘 이 컴퓨터에서 내 사용량 대비 아낀 비율 (%): 순절약 / (실제 쓴 값 + 순절약) */
+  myPct: number | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    'auto-model': { hint: AutoModelHint | null; route: AutoModelRoute | null; memory: AutoModelMemory | null }
+    'auto-model': { hint: AutoModelHint | null; route: AutoModelRoute | null; memory: AutoModelMemory | null; saving: AutoModelSaving | null }
   }
 }
