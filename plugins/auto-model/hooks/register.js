@@ -853,7 +853,9 @@ export function register(on) {
       const task = taskOf(text, lastAnswer)
       if (task === 'write' || task === 'search') pendingWork = { task, model: task === 'write' ? 'sonnet' : 'haiku', text, manual: false }
     }
-    if (/^[~<]/.test(text)) {
+    // '~ 요청' 은 판단을 건너뛴다. 사람이 친 것만: 다른 세션의 메시지(<cross-session-message …>)나 붙여넣은 HTML 처럼 '<' 로
+    // 시작하는 글은 건드리지 않는다 (예전엔 '<' 도 건너뛰기로 봐서 맨 앞 글자를 지웠다)
+    if (!e.origin && text.startsWith('~')) {
       pending = { text: text.slice(1).trimStart(), skip: true }
       return next({ ...e, text: pending.text })
     }

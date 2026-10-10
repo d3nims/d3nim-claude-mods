@@ -18,7 +18,7 @@
     {
       "name": "auto-model",
       "source": "./plugins/auto-model",
-      "description": "프롬프트 캐시를 아끼게 도와요. 한참 쉬어서 캐시가 식었는데 대화가 길면, 다음 요청이 대화 전체를 다시 저장한다는 걸 테리 카드 아래에 알리고 /compact 를 제안합니다"
+      "description": "요청마다 맞는 모델이 처리해요. 메인(Opus)은 그대로 두고 단순한 일은 Sonnet·Haiku 일꾼에게 맡겨서, 기억(프롬프트 캐시)을 안 깨고 사용료를 아껴요. 쉬고 온 뒤 압축은 Sonnet 요약, 아낀 만큼 테리 카드에 표시"
     }
   ]
 }

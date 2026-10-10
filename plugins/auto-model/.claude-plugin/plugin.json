@@ -1,7 +1,7 @@
 {
   "name": "auto-model",
-  "version": "0.5.3",
-  "description": "프롬프트 캐시를 아끼며 모델을 골라요. 한참 쉬어 캐시가 식은 긴 대화엔 /compact 를 제안하고, 가벼운 요청은 바꾸는 쪽이 확실히 쌀 때만 Sonnet 으로 내리고 검색·탐색 서브에이전트는 Haiku 로 보냅니다. 테리 카드에 표시",
+  "version": "0.5.4",
+  "description": "요청마다 맞는 모델이 처리해요. 메인(Opus)은 그대로 두고 단순한 일은 Sonnet·Haiku 일꾼에게 맡겨서, 기억(프롬프트 캐시)을 안 깨고 사용료를 아껴요. 쉬고 온 뒤 압축은 Sonnet 요약, 아낀 만큼 테리 카드에 표시",
   "author": {
     "name": "d3nim"
   },

@@ -189,3 +189,14 @@ test('by default a recall question only records what switching would have done (
   expect(log).toMatch(/켰다면 예상 손익 −/) // Opus would have had to rewrite the conversation right after
   expect(log).toMatch(/\[shadow\].*다음 턴: heavy/)
 })
+
+test("another session's message is passed on untouched (not read as a '~' skip), and '<' typed by hand is not a skip either", async ($, on) => {
+  const { world } = await start($, on)
+  const peer = '<cross-session-message from="uds:/x">hi</cross-session-message>'
+  await $.prompt.submit({ text: peer, origin: { kind: 'peer' } } as never)
+  expect(world.texts.at(-1)).toBe(peer)
+  await $.prompt.submit({ text: '<div>이거 왜 깨져?</div>' } as never)
+  expect(world.texts.at(-1)).toBe('<div>이거 왜 깨져?</div>')
+  await $.prompt.submit({ text: '~어디까지 했었지?' } as never)
+  expect(world.texts.at(-1)).toBe('어디까지 했었지?')
+})
