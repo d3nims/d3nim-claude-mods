@@ -255,3 +255,34 @@ test('/terry pane opens Terry in a pane of his own, with what he is doing and th
   expect(await pane.find({ type: 'Text', text: /5시간 38%/ })).toBeDefined()
   await pane.unmount()
 })
+
+test("auto-model's compact hint shows under Terry, with its two buttons", async ($, on) => {
+  engine(on)
+  const hint = { id: 1, idleMinutes: 72, tokens: 460000, rewriteUsd: 3.68, model: 'claude-opus-5-5' }
+  on('state.get', (_: unknown, e: any, next: any) => (e.plugin === 'auto-model' && e.key === 'hint' ? { value: { value: hint, version: 1 } } : next(e)))
+  const ran: string[] = []
+  on('command.run', (_: unknown, e: any, next: any) => (e.command === 'auto-model' ? (ran.push(e.args), { text: 'ok' }) : next(e)))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 160 } as never })
+  expect(await ui.find({ type: 'Text', text: /1시간 12분 쉬어서 캐시가 식었어요.*46만 토큰.*\$3\.7/ })).toBeDefined()
+  await ui.press({ key: 'ah-compact' } as never)
+  await ui.press({ key: 'ah-skip' } as never)
+  expect(ran).toEqual(['compact', 'dismiss'])
+  await ui.unmount()
+})
+
+test("auto-model's route shows on the card's model row", async ($, on) => {
+  engine(on)
+  let route: any = { mode: 'auto', base: 'claude-opus-5-5', model: 'claude-sonnet-5-5', reason: '가벼움' }
+  on('state.get', (_: unknown, e: any, next: any) => (e.plugin === 'auto-model' && e.key === 'route' ? { value: { value: route, version: 1 } } : next(e)))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 120 } as never })
+  expect(await ui.find({ type: 'Text', text: /🔄 Sonnet 5\.5/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /← Opus/ })).toBeDefined()
+  route = { ...route, mode: 'pin', model: 'claude-opus-5-5' }
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /📌 Opus 5\.5/ })).toBeDefined()
+  await ui.unmount()
+})

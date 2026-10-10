@@ -279,7 +279,7 @@ async function statsText($) {
   ].join('\n')
 }
 
-// 사용법 안내 (불러올 때 알림창으로, /flame1 help 로도 볼 수 있다). 명령 하나당 한 줄.
+// 사용법 안내 (/terry help, /flame1 help). 명령 하나당 한 줄. 알림창은 줄바꿈을 못 그려서 여기에 쓰지 않는다.
 const guide = () =>
   [
     'usage-meter 사용법 (지금: ' + (style === 'terry' ? '강아지' : '불꽃 밴드') + ', ' + drawMode() + ')',
@@ -523,6 +523,55 @@ function bandFor(cols) {
   return bandCache.band
 }
 
+// auto-model 플러그인의 제안 (한참 쉬어 캐시가 식었는데 대화가 길 때): 테리 카드나 불꽃 밴드 아래 한 줄.
+// auto-model 이 없으면 값이 없어 아무것도 안 그린다. 버튼은 auto-model 의 명령을 부른다.
+const AUTO_HINT = { plugin: 'auto-model', key: 'hint' }
+async function autoHint($) {
+  try {
+    const { value } = await $.state.get(AUTO_HINT)
+    return value || null
+  } catch {
+    return null
+  }
+}
+// auto-model 의 자동 전환 상태: 카드 모델 줄에 표시 (🔄 바꿔서 씀 · 📌 고정 · ✋ /model 로 직접 골라 멈춤)
+const AUTO_ROUTE = { plugin: 'auto-model', key: 'route' }
+async function autoRoute($) {
+  try {
+    const { value } = await $.state.get(AUTO_ROUTE)
+    return value && value.mode !== 'off' ? value : null
+  } catch {
+    return null
+  }
+}
+const familyName = id => String(id || '').replace(/^claude-/, '').split('-')[0]
+const manTokens = n => (n >= 10000 ? Math.round(n / 10000) + '만' : Math.round(n / 1000) + '천')
+function hintRow($, hint, Box, Text, Button, width) {
+  if (!hint) return null
+  const idle = hint.idleMinutes >= 60 ? Math.floor(hint.idleMinutes / 60) + '시간' + (hint.idleMinutes % 60 ? ' ' + (hint.idleMinutes % 60) + '분' : '') : hint.idleMinutes + '분'
+  const usd = '$' + (hint.rewriteUsd >= 10 ? Math.round(hint.rewriteUsd) : hint.rewriteUsd.toFixed(1))
+  const long = `⏰ ${idle} 쉬어서 캐시가 식었어요 · 다음 요청이 대화 ${manTokens(hint.tokens)} 토큰을 다시 써요 (API 환산 약 ${usd}) · 압축하면 그 뒤 요청이 가벼워져요 `
+  const mid = `⏰ ${idle} 쉬어 캐시 식음 · 다음 요청에 ${manTokens(hint.tokens)} 토큰 다시 씀 (약 ${usd}) `
+  const short = `⏰ 캐시 식음 · ${manTokens(hint.tokens)} 토큰 다시 씀 `
+  const room = width - (Button ? 14 : 0)
+  const text = visible(long) <= room ? long : visible(mid) <= room ? mid : short
+  return Box({
+    key: 'auto-hint',
+    flexDirection: 'row',
+    children: [
+      Text({ key: 'ah-t', color: '#ffd166', children: [text] }),
+      ...(Button
+        ? [
+            Button({ key: 'ah-compact', label: '압축', onPress: () => void $command($, 'compact') }),
+            Text({ key: 'ah-sp', children: [' '] }),
+            Button({ key: 'ah-skip', label: '계속', dimColor: true, onPress: () => void $command($, 'dismiss') }),
+          ]
+        : []),
+    ],
+  })
+}
+const $command = ($, args) => $.command.run({ command: 'auto-model', args }).catch(() => {})
+
 export function register(on) {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'flame1', description: '사용량을 파란 불꽃 밴드로 보여요 (뒤에 quad 또는 braille 을 붙이면 그림 방식 변경)' })
@@ -557,7 +606,8 @@ export function register(on) {
     $.clock.every(2000, async () => {
       if (await syncModel($)) $.ui.invalidate('ui.render')
     })
-    await $.ui.toast(guide(), { timeoutMs: 12000 })
+    // (알림창은 줄바꿈을 못 그려 '�' 로 나온다: 한 줄만 띄우고 자세한 건 /terry help 로)
+    await $.ui.toast('usage-meter: ' + (style === 'terry' ? '강아지' : '불꽃 밴드') + ' 화면이에요 · 명령은 /terry help · 옆 창은 /terry pane', { timeoutMs: 8000 })
     // 터미널이 트루컬러를 알리지 않으면 Claude Code 가 256색으로 줄여 그린다 (테리가 청록색, 흙길이 회색으로 보임)
     const pinned = Number.parseFloat((await $.env.get('TERRY_HOUR').catch(() => '')) || '')
     hourOverride = pinned >= 0 && pinned < 24 ? pinned : null
@@ -842,7 +892,12 @@ export function register(on) {
       const mini = beside && sideW < 22
       const nano = beside && sideW < 15
       runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), drawMode(), localHour(), terryCols, runEffort(), today()))
-      const name = prettyModel(modelId)
+      const rt = await autoRoute($)
+      const routed = rt && rt.model && familyName(rt.model) !== familyName(rt.base)
+      // 자동으로 바꿔 쓰는 중이면 실제로 쓰는 모델을 보여 준다
+      const name = routed || (rt && rt.mode === 'pin') ? prettyModel(rt.model) : prettyModel(modelId)
+      const routeMark = !rt ? '' : rt.mode === 'pin' ? '📌 ' : rt.mode === 'stopped' ? '' : '🔄 '
+      const routeTail = !rt || nano ? '' : routed && !tight ? ' ← ' + (prettyModel(rt.base) || '').split(' ')[0] : rt.mode === 'stopped' && !mini ? ' ✋' : ''
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
       const moodText = moodLabel(m, tight) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
       const tokenLines = mini || nano ? [] : !t ? [' '] : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
@@ -869,13 +924,14 @@ export function register(on) {
             flexDirection: 'row',
             children: name
               ? [
-                  Text({ key: 'tc-m', color: MODEL_COLOR, bold: true, children: [name] }),
+                  Text({ key: 'tc-m', color: MODEL_COLOR, bold: true, children: [routeMark + name] }),
                   ...(showEffort
                     ? [
                         Text({ key: 'tc-ek', dimColor: true, children: [' · '] }),
                         Text({ key: 'tc-e', color: effort ? effortColor(effort) : undefined, dimColor: !effort, children: [effort ?? '--'] }),
                       ]
                     : []),
+                  ...(routeTail ? [Text({ key: 'tc-route', dimColor: true, children: [routeTail] })] : []),
                 ]
               : [Text({ key: 'tc-none', dimColor: true, children: ['모델 정보 기다리는 중'] })],
           }),
@@ -908,13 +964,15 @@ export function register(on) {
         }),
       })
       const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), drawMode(), localHour(), terryCols, runEffort(), today()) })
+      const hint = hintRow($, await autoHint($), Box, Text, Button, cols)
+      const withHint = top => (hint ? Box({ key: 'terry-with-hint', flexDirection: 'column', children: [top, hint] }) : top)
       // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
-      if (!beside) return Box({ key: 'terry-alone', flexDirection: 'column', children: [dog] })
+      if (!beside) return withHint(Box({ key: 'terry-alone', flexDirection: 'column', children: [dog] }))
       if (beside) {
         const side = Box({ key: 'terry-side', flexDirection: 'column', height: TERRY_ROWS, justifyContent: 'space-between', children: [card, usageTable] })
-        return Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: gap, children: [side] })] })
+        return withHint(Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: gap, children: [side] })] }))
       }
-      return Box({ key: 'terry-col', flexDirection: 'column', children: [dog, card, usageTable] })
+      return withHint(Box({ key: 'terry-col', flexDirection: 'column', children: [dog, card, usageTable] }))
     }
 
     // /flame1 화면: 5시간 | 주간 | 대화, 칸마다 불꽃
@@ -953,6 +1011,7 @@ export function register(on) {
           ],
         }),
         Box({ key: 'labels', flexDirection: 'row', children: labels }),
+        ...[hintRow($, await autoHint($), Box, Text, Button, cols)].filter(Boolean),
       ],
     })
   })

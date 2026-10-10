@@ -176,6 +176,15 @@ claude plugin update usage-meter@d3nim-claude-mods
 - **1.2.1**: 쓰다듬기 첫 프레임에 남아 있던 뒷목(저장 안 된 한 장)을 나머지 7장처럼 고침.
 - **1.2.2**: max 망토가 등 바깥(꼬리 뒤)으로만 보이던 것 수정. 예전 비행 자세 기준 고정 위치에 테리 뒤로 그려서 몸에 가려졌음. 이제 프레임마다 털 맨 윗줄을 따라 어깨(`CAPE_X` 27)부터 엉덩이(`CAPE_BACK` 19)까지 테리 위에 덮고, 아래 끝을 점자 칸 경계에 맞춰 흰 털과 칸을 나누지 않게 함. 휘날리는 끝도 테리 위에 그려 꼬리를 덮으며 이어짐.
 
+### auto-model (2026-10-10, 0.2.1) · usage-meter 1.2.3
+- 하네스 세션("범용 개발 하네스 설계")과 같이 설계. 대표님 jev 는 보류하고 손대지 않음.
+- 1단계: 마지막 메인 호출 뒤 TTL(60분) 지남 + 대화 15만 토큰 이상이면 `$.state` auto-model/hint → usage-meter 가 카드 아래 한 줄 + [압축][계속]. /compact 도 대화 전체를 한 번 읽으므로 그 순간 비용은 안 사라짐: 압축 요청의 실제 usage 를 store 'compactions' 에 기록.
+- 2단계: turn.step index 0 에서 모델 결정, 턴 동안 유지. 그대로 vs 바꿈 어림값(캐시 warm 이면 읽기, cold 면 1시간 쓰기 2배 + 답 1500토큰)에서 바꾸는 쪽이 30% 넘게 쌀 때만. 규칙: heavy/approve(승인·진행, 직전 답이 질문이면 짧은 긍정도) → 원래 모델, ack(맞장구) → 그대로, light(기억 확인 질문) → 기본 shadow(켰다면만 기록, `light on` 으로 켜기), unsure → 그대로(바꿀 만하면 `$.model.classify`). 메인 하한 Sonnet, 거부 표현·도구 오류 2번 → 복귀 후 3턴 유지, `/model` 직접 변경 → 세션 자동 중지, `~` 건너뛰기. 검색·탐색 서브에이전트(모델 미지정)는 haiku.
+- 기억: last/warmAt 등은 `$.state` auto-model/memory 에 세션 id 와 함께(reload 에도 유지), /resume 은 `classic.SessionStart` 의 seconds_since_last_response·context_tokens 로 추정. 모르면 그대로.
+- 첫 실사용 오판(10/10 16:05): reload 직후 대화 0토큰으로 계산 + 물음표를 가볍다고 봄 → Sonnet 이 46만 토큰 다시 씀(API 환산 약 $1.8). 위 수정으로 막고 회귀 테스트.
+- 10/17 이후 로그 검토하기로 함(메모리 auto-model-review). 로그: `/auto-model log`, store `~/.claude/plugins/store/auto-model_*.json`.
+- usage-meter 1.2.3: 카드 모델 줄에 자동 상태(🔄 📌 ✋), 압축 제안 줄, 불러올 때 알림을 한 줄로(알림창은 줄바꿈을 '�' 로 그림).
+
 ### 확인 못 한 것 (실기 확인 필요)
 - 실제 Claude Code 화면에서 밴드/`/dog`가 어떻게 보이는지, 15프레임 갱신이 부담 없는지.
 - 파이리(포켓몬) 실험 파일은 저작권 문제로 저장소에 올리기 전에 지웠다. 불꽃·테리 관련만 남김.

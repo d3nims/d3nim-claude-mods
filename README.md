@@ -9,6 +9,7 @@ Claude Code 안에서:
 ```
 /plugin marketplace add d3nims/d3nim-claude-mods
 /plugin install usage-meter@d3nim-claude-mods
+/plugin install auto-model@d3nim-claude-mods
 /reload-plugins
 ```
 
@@ -91,6 +92,27 @@ export COLORTERM=truecolor
 ```bash
 node docs/preview/terry-view.mjs   # ←→ 동작, e 강도, m 그림 방식, w 너비, t 시각, s 계절, y 명절, space 느리게, q 끝내기
 ```
+
+## auto-model
+
+프롬프트 캐시를 아끼며 모델을 고릅니다. 캐시는 모델마다 따로이고 마지막 호출 뒤 1시간이 지나면 식어서, 긴 대화에서 함부로 모델을 바꾸면 대화 전체를 다시 저장하느라 오히려 비싸집니다. usage-meter 와 같이 쓰면 테리 카드에 표시됩니다.
+
+- **쉰 뒤 압축 제안:** 1시간 넘게 쉬었고 대화가 15만 토큰 이상이면, 다음 요청이 대화 전체를 다시 쓴다는 걸 알리고 `/compact` 를 제안합니다 (`[압축]` `[계속]`).
+- **모델 고르기:** 요청마다 판단하되, 바꾸는 쪽이 확실히 쌀 때만 바꿉니다. 맞장구는 그대로, "ㅇㅋ 진행해" 같은 승인·진행 지시는 무거운 일로 봅니다. 기억을 묻는 짧은 질문의 전환은 지금은 "켰다면"만 기록합니다 (`/auto-model light on` 으로 켜기).
+- **서브에이전트:** 모델을 지정하지 않은 검색·탐색 서브에이전트는 Haiku 로 보냅니다.
+- **늘 보이게:** 카드 모델 줄에 `🔄` (바꿔서 씀) `📌` (고정) `✋` (`/model` 로 직접 골라 멈춤). 프롬프트 앞에 `~` 를 붙이면 그 요청은 건너뜁니다.
+
+```
+/plugin install auto-model@d3nim-claude-mods
+```
+
+| 명령 | 내용 |
+| --- | --- |
+| `/auto-model` | 지금 상태 |
+| `/auto-model off` · `on` | 전부 끄고 켜기 |
+| `/auto-model pin opus` · `unpin` | 모델 고정 / 풀기 |
+| `/auto-model log` | 최근 판단 기록 (이유, 대화 크기, 캐시, 사용량, shadow 손익) |
+| `/auto-model preview` | 압축 제안 미리 보기 1분 |
 
 ## jev
 

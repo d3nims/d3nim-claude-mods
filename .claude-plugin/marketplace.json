@@ -14,6 +14,11 @@
       "name": "jev",
       "source": "./plugins/jev",
       "description": "입력이 '기존 화면처럼 해 달라'(G-1)나 '직전 결과가 틀렸다'(G-3)인지 로컬 판정기(Ollama bge-m3)로 0.1초에 가려, Claude 가 기준을 바꾸거나 추측 재시도하지 않게 알림을 넣습니다. 처음엔 shadow(기록만)로 동작합니다"
+    },
+    {
+      "name": "auto-model",
+      "source": "./plugins/auto-model",
+      "description": "프롬프트 캐시를 아끼게 도와요. 한참 쉬어서 캐시가 식었는데 대화가 길면, 다음 요청이 대화 전체를 다시 저장한다는 걸 테리 카드 아래에 알리고 /compact 를 제안합니다"
     }
   ]
 }
