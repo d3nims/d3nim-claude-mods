@@ -29,6 +29,7 @@
 // /auto-model log            : 최근 판단 기록 (전환·보류 이유, 대화 크기, 캐시, 사용량)
 // /auto-model ttl <분> · min <천 토큰> : 캐시 식는 시간 (기본 60) · 제안할 대화 크기 (기본 150)
 // /auto-model compact [남길 내용] · dismiss · preview : 압축 / 이번 제안 닫기 / 제안 미리 보기 1분
+// /auto-model warn <퍼센트> | off : 작업 중 대화가 이만큼 차면 압축 권하기 (기본 85)
 
 import { MODELS, familyOf, isRejection, isSearchy, missedWorkerOf, prettyName, promptHead, ruleOf, taskOf, turnCost, usageCost, workerEstimate } from './route.js'
 
@@ -36,13 +37,21 @@ const HINT = { plugin: 'auto-model', key: 'hint' }
 const ROUTE = { plugin: 'auto-model', key: 'route' }
 const MEMORY = { plugin: 'auto-model', key: 'memory' }
 
-const DEFAULTS = { enabled: true, ttlMinutes: 60, minTokens: 150000, route: 'auto', pin: null, mainHaiku: false, lightSwitch: false, worker: 'shadow' }
+const DEFAULTS = { enabled: true, ttlMinutes: 60, minTokens: 150000, route: 'auto', pin: null, mainHaiku: false, lightSwitch: false, worker: 'shadow', warnPct: 85 }
 let settings = { ...DEFAULTS }
 // 메인 대화의 마지막 모델 호출: 시각, 다음 요청이 다시 보낼 크기, 답한 모델
 let last = null
 let dismissedFor = null // 이 시각의 호출에 대한 제안은 닫았음
 let shownMinutes = -1
 let previewUntil = 0 // /auto-model preview 가 보여 주는 동안은 판단을 쉰다
+let shownKind = null // 떠 있는 제안: 'cold' (쉬고 옴) | 'warm' (작업 중 대화가 참)
+let shownPct = -1
+let warmSnoozePct = 0 // 작업 중 제안에서 '나중에' 를 누르면, 이만큼(+5%p) 더 찰 때까지 다시 안 묻는다
+let compactMode = null // 우리 [압축] 버튼이 시작한 압축의 종류 (session.compact 훅이 읽는다)
+let compactModeUntil = 0
+// (자기 플러그인이 시작한 압축에는 자기 session.compact 훅이 돌지 않는다: 그래서 Sonnet 요약은 카드의 [압축] 버튼, 즉
+//  usage-meter 가 압축을 시작하고 auto-model 이 그걸 가로챌 때만 된다. /auto-model compact 로 친 압축은 원래 모델이 한다)
+let compactHandled = false
 
 // 2단계 (세션 동안)
 const warmAt = {} // 모델 계열(opus/sonnet/haiku) -> 그 모델이 메인 대화에 마지막으로 답한 시각
@@ -121,32 +130,52 @@ async function check($) {
   if (!settings.enabled || !last) return
   const idle = now - last.at
   const cold = idle >= settings.ttlMinutes * 60000
-  if (!cold || last.tokens < settings.minTokens || dismissedFor === last.at) {
-    if (shownMinutes >= 0) {
-      shownMinutes = -1
-      await setHint($, null)
-    }
+  // 쉬고 옴: 캐시가 식었고 대화가 길다 → 압축하면 Sonnet 이 요약 (같은 품질에 절반 값, 시험으로 확인)
+  if (cold && last.tokens >= settings.minTokens && dismissedFor !== last.at) {
+    const idleMinutes = Math.floor(idle / 60000)
+    if (shownKind === 'cold' && idleMinutes === shownMinutes) return
+    shownKind = 'cold'
+    shownMinutes = idleMinutes
+    await setHint($, { kind: 'cold', id: last.at, idleMinutes, tokens: last.tokens, rewriteUsd: rewriteUsd(last.model, last.tokens), model: last.model })
     return
   }
-  const idleMinutes = Math.floor(idle / 60000)
-  if (idleMinutes === shownMinutes) return
-  shownMinutes = idleMinutes
-  await setHint($, { id: last.at, idleMinutes, tokens: last.tokens, rewriteUsd: rewriteUsd(last.model, last.tokens), model: last.model })
+  // 작업 중: 대화가 많이 찼다 → 지금은 캐시가 살아 있어 원래 모델이 싸게 압축한다
+  if (!cold && settings.warnPct > 0) {
+    let pct = null
+    try {
+      pct = (await $.session.usage()).context.percent
+    } catch {}
+    if (pct != null && pct >= settings.warnPct && pct >= warmSnoozePct) {
+      if (shownKind === 'warm' && shownPct === pct) return
+      shownKind = 'warm'
+      shownPct = pct
+      shownMinutes = 0
+      await setHint($, { kind: 'warm', id: last.at, percent: pct, idleMinutes: 0, tokens: last.tokens, rewriteUsd: 0, model: last.model })
+      return
+    }
+  }
+  if (shownKind) await clearHint($)
 }
 
-async function clearHint($) {
+async function clearHint($, onlyKind) {
+  if (onlyKind && shownKind !== onlyKind) return
   previewUntil = 0
-  if (shownMinutes < 0) return
+  if (shownMinutes < 0 && !shownKind) return
   shownMinutes = -1
+  shownKind = null
+  shownPct = -1
   await setHint($, null)
 }
 
 // 압축: 명령이나 버튼이 도는 동안엔 엔진이 압축을 거절해서('턴이 도는 중'), 명령이 끝난 직후에 시작한다.
 // (자기 플러그인의 압축 훅은 자기 호출엔 돌지 않으므로, 쓴 토큰 기록도 여기서 한다)
-async function compactNow($, instructions) {
+async function compactNow($, instructions, mode) {
+  const kind = mode || shownKind || 'warm'
   await clearHint($)
   void (async () => {
     await $.clock.sleep(300)
+    compactMode = kind
+    compactHandled = false
     try {
       const r = await $.session.compact(instructions ? { instructions } : undefined)
       if (r && r.skip) {
@@ -156,17 +185,83 @@ async function compactNow($, instructions) {
       const before = r && r.tokensBefore
       const after = r && r.tokensAfter
       if (last && after) last = { ...last, tokens: after }
-      try {
-        const log = (await $.store.get('compactions')) || []
-        log.push({ at: await $.clock.now(), trigger: 'plugin', before: before ?? null, after: after ?? null, usage: (r && r.usage) ?? null })
-        await $.store.set('compactions', log.slice(-20))
-      } catch {}
+      if (!compactHandled) await logCompaction($, { trigger: 'plugin', mode: kind, before, after, usage: r && r.usage })
       $.ui.toast('auto-model: 압축했어요' + (before && after ? ` (${tokensText(before)} → ${tokensText(after)})` : ''))
     } catch (err) {
       $.ui.toast('auto-model: 압축을 못 했어요 (' + String((err && err.message) || err).slice(0, 120) + ') · /compact 를 직접 입력해 주세요')
+    } finally {
+      compactMode = null
     }
   })()
-  return '압축을 시작할게요 (끝나면 알려 드려요)'
+  return kind === 'cold' ? '압축을 시작할게요 (쉬고 와서 캐시가 식었으니 Sonnet 이 요약해요. 끝나면 알려 드려요)' : '압축을 시작할게요 (끝나면 알려 드려요)'
+}
+
+async function logCompaction($, c) {
+  try {
+    const log = (await $.store.get('compactions')) || []
+    log.push({ at: await $.clock.now(), trigger: c.trigger, mode: c.mode || null, model: c.model || null, before: c.before ?? null, after: c.after ?? null, usage: c.usage ?? null })
+    await $.store.set('compactions', log.slice(-20))
+  } catch {}
+}
+
+// ---- 압축 요약: 쉬고 와서(cold) 우리 [압축] 버튼일 때는 Sonnet, 작업 중(warm)은 원래 모델 ----
+// 시험(대화 2개, 25만·50만 토큰): Sonnet 요약은 Opus 와 사실 보존이 같고 절반 값. 다만 승인·금지 범위를 일반화해 틀린 일이
+// 있어서, 사용자 메시지를 원문으로 붙이면 사라졌다. 그 섹션은 모델에 맡기지 않고 여기서 대화에서 그대로 꺼내 붙인다.
+const COLD_SUMMARY = `아래는 Claude Code 와 사용자의 긴 대화 기록이에요. 이 대화가 압축되어, 이후에는 이 요약만 보고 같은 일을 이어 가야 해요.
+아래 항목으로 자세히 요약하세요. 사실만, 지어내지 말고, 경로·명령·숫자·버전은 정확히.
+1. 사용자의 목표와 요청 (시간 순)
+2. 핵심 기술 개념과 결정 사항 (왜 그렇게 정했는지 포함)
+3. 파일과 코드 (경로, 바뀐 내용)
+4. 오류와 고친 방법
+5. 사용자가 준 승인·허락의 범위와 금지 사항 (예외는 예외로, 일반 규칙과 구분해서)
+6. 사용자의 선호와 작업 방식
+7. 남은 작업
+8. 지금 하던 일과 바로 다음 단계
+(사용자 메시지 원문 목록은 따로 붙으니 쓰지 마세요.)
+
+=== 대화 기록 시작 ===
+`
+const SUMMARY_HEAD = '이 대화는 앞부분이 압축되어 이어지고 있어요. 아래는 앞부분의 요약과, 사용자가 보낸 메시지의 원문이에요.\n\n'
+
+const clip = (text, keep = 200) => (text.length > keep + 100 ? text.slice(0, keep) + `[…${text.length - keep}자 생략]` : text)
+// 사용자가 직접 보낸 메시지만 (시스템 알림·명령 기록·도구 결과·다른 세션의 메시지·이전 압축 요약은 빼고), 짧은 건 원문 그대로,
+// 긴 붙여넣기는 앞 200자만. 사용자가 '!' 로 직접 실행한 명령은 '(! 실행)' 으로 앞부분만 (배포 같은 승인의 근거라서)
+const NOT_TYPED = /^(<(system-reminder|task-notification|local-command|command-|cross-session-message|agent-message|bash-stdout|bash-stderr)|Another Claude session sent a message|This session is being continued from a previous conversation|\[Request interrupted)/
+export function userMessagesSection(messages) {
+  const lines = []
+  for (const m of messages || []) {
+    if (m.role !== 'user' || m.agentId) continue
+    let t = String(m.text || '').replace(/\u001b?\[?<\d+;\d+;\d+[mM]/g, '').trim() // (터미널 마우스 입력 찌꺼기)
+    if (!t || NOT_TYPED.test(t)) continue
+    t = t.replace(/\[Image: source: [^\]]*\]/g, '').trim()
+    if (!t) continue
+    const bash = /^<bash-input>([\s\S]*?)(<\/bash-input>|$)/.exec(t)
+    const line = bash ? '(! 실행) ' + clip(bash[1].trim(), 120) : clip(t)
+    lines.push(`${lines.length + 1}. ${line.replace(/\n+/g, ' ⏎ ')}`)
+  }
+  return '## 모든 사용자 메시지 (원문, 자동 추출. 긴 붙여넣기는 앞부분만)\n' + (lines.join('\n') || '(없음)')
+}
+function transcriptText(messages) {
+  const out = []
+  for (const m of messages || []) {
+    if (m.agentId) continue
+    if (m.text) out.push(`[${m.role}] ${m.text}`)
+    for (const t of m.toolUses || []) out.push(`[${m.role} 도구 ${t.tool}] ${JSON.stringify(t.input || {}).slice(0, 800)}`)
+    for (const t of m.toolResults || []) out.push(`[도구 결과] ${JSON.stringify(t).slice(0, 800)}`)
+  }
+  return out.join('\n')
+}
+async function sonnetCompact($, e) {
+  const r = await $.model.complete({
+    model: 'sonnet',
+    system: '긴 대화를 이어받을 사람을 위해 정확하게 요약하는 도우미예요. 지시를 그대로 따르세요.',
+    prompt: COLD_SUMMARY + transcriptText(e.messages) + '\n=== 대화 기록 끝 ===',
+    maxTokens: 16000,
+    timeoutMs: 15 * 60000,
+  })
+  if (!r || !r.isAnswered || !String(r.text || '').trim()) return null
+  const text = SUMMARY_HEAD + r.text.trim() + '\n\n' + userMessagesSection(e.messages)
+  return { messages: [{ role: 'user', text, toolUses: [] }], tokensBefore: last ? last.tokens : undefined, usage: r.usage }
 }
 
 // ---- 2단계: 모델 고르기 ----
@@ -321,7 +416,7 @@ async function statusText($) {
     lines.push('최근 압축 (압축 요청이 실제로 쓴 토큰):')
     for (const c of log.slice(-5)) {
       const u = c.usage || {}
-      lines.push(`  ${timeText(c.at)} · ${c.before ? tokensText(c.before) : '?'} → ${c.after ? tokensText(c.after) : '?'} · 입력 ${u.input_tokens ?? '?'} · 캐시 읽기 ${u.cache_read_input_tokens ?? '?'} · 캐시 쓰기 ${u.cache_creation_input_tokens ?? '?'} · 출력 ${u.output_tokens ?? '?'}`)
+      lines.push(`  ${timeText(c.at)} · ${c.mode === 'cold' ? '쉬고 와서' : c.mode === 'warm' ? '작업 중' : c.trigger || ''}${c.model ? ' · ' + prettyName(c.model).split(' ')[0] + ' 요약' : ''} · ${c.before ? tokensText(c.before) : '?'} → ${c.after ? tokensText(c.after) : '?'} · 입력 ${u.input_tokens ?? '?'} · 캐시 읽기 ${u.cache_read_input_tokens ?? '?'} · 캐시 쓰기 ${u.cache_creation_input_tokens ?? '?'} · 출력 ${u.output_tokens ?? '?'}`)
     }
   }
   lines.push('(/auto-model log: 최근 판단 기록)')
@@ -464,13 +559,13 @@ export function register(on) {
       warmAt[familyOf(r.usage.model)] = now
       current = r.usage.model
       if (r.answer) lastAnswer = String(r.answer).slice(-200)
+      await clearHint($, 'cold')
       const d = decisions.length && decisions[decisions.length - 1]
       if (d && d.turnId === e.turnId) {
         const u = d.usage || { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 }
         for (const k of Object.keys(u)) u[k] += r.usage[k] || 0
         d.usage = u
       }
-      await clearHint($)
       await saveMemory($)
     }
     return r
@@ -576,17 +671,30 @@ export function register(on) {
   }).catch(($, e, next) => next(e))
 
   // 압축이 끝나면: 대화 크기를 줄여 적고, 압축 요청이 실제로 쓴 토큰을 기록한다 (제안이 맞는지 나중에 보려고)
+  // 압축: 우리 [압축] 버튼(trigger plugin)일 때만 손을 댄다. 쉬고 와서 캐시가 식었으면 Sonnet 이 요약하고, 작업 중이면 원래 모델이
+  // 요약하되 사용자 메시지 원문을 붙인다. 사람이 친 /compact(manual)와 자동 압축(auto)은 그대로. 실패하면 원래대로 (fail open)
   on('session.compact', async ($, e, next) => {
-    const r = await next(e)
+    const mode = !e.agentId && e.trigger === 'plugin' && compactMode && (await $.clock.now()) < compactModeUntil ? compactMode : null
+    if (mode) compactMode = null
+    let r = null
+    let model = null
+    if (mode === 'cold' && last && (await $.clock.now()) - last.at >= settings.ttlMinutes * 60000) {
+      try {
+        r = await sonnetCompact($, e)
+        if (r) model = MODELS.sonnet
+      } catch {
+        r = null
+      }
+    }
+    if (!r) {
+      r = await next(e)
+      if (mode && r && r.messages) r = { ...r, messages: [...r.messages, { role: 'user', text: userMessagesSection(e.messages), toolUses: [] }] }
+    }
     if (!e.agentId && r && r.messages) {
-      const at = await $.clock.now()
       if (last && r.tokensAfter) last = { ...last, tokens: r.tokensAfter }
       await clearHint($)
-      try {
-        const log = (await $.store.get('compactions')) || []
-        log.push({ at, trigger: e.trigger, before: r.tokensBefore ?? null, after: r.tokensAfter ?? null, usage: r.usage ?? null })
-        await $.store.set('compactions', log.slice(-20))
-      } catch {}
+      if (mode) compactHandled = true
+      await logCompaction($, { trigger: e.trigger, mode, model, before: r.tokensBefore, after: r.tokensAfter, usage: r.usage })
     }
     return r
   }).catch(($, e, next) => next(e))
@@ -655,6 +763,13 @@ export function register(on) {
       return { text: arg === 'ttl' ? `캐시 식는 시간을 ${n}분으로 했어요` : `${tokensText(n * 1000)} 이상인 대화에만 제안해요` }
     }
     if (arg === 'compact') return { text: await compactNow($, rest.join(' ')) }
+    // 카드의 [압축] 버튼: 이어서 usage-meter 가 압축을 시작한다. 그 압축이 쉬고 온 뒤인지(Sonnet) 작업 중인지 적어 둔다
+    if (arg === 'compact-prep') {
+      compactMode = rest[0] === 'cold' || rest[0] === 'warm' ? rest[0] : shownKind || 'warm'
+      compactModeUntil = (await $.clock.now()) + 60000
+      await clearHint($)
+      return { text: compactMode }
+    }
     if (arg === 'preview') {
       const tokens = last ? last.tokens : 460000
       const model = last ? last.model : MODELS.opus
@@ -664,9 +779,24 @@ export function register(on) {
       return { text: '제안을 1분 동안 보여 줄게요 (테리 카드 아래)' }
     }
     if (arg === 'dismiss') {
+      if (shownKind === 'warm') {
+        warmSnoozePct = shownPct + 5 // '나중에': 5%p 더 찰 때까지 다시 안 묻는다
+        await clearHint($)
+        return { text: `${warmSnoozePct}% 가 되면 다시 알려 드릴게요` }
+      }
       if (last) dismissedFor = last.at
       await clearHint($)
       return { text: '이번엔 그냥 계속할게요' }
+    }
+    if (arg === 'warn') {
+      const v = (rest[0] || '').toLowerCase()
+      const n = v === 'off' ? 0 : Number(v)
+      if (!Number.isFinite(n) || n < 0 || n > 100) return { text: '/auto-model warn <퍼센트> | off (지금: ' + (settings.warnPct || 'off') + ')' }
+      settings.warnPct = n
+      warmSnoozePct = 0
+      await save()
+      await check($)
+      return { text: n ? `대화가 ${n}% 차면 압축을 권할게요` : '작업 중 압축 알림을 껐어요' }
     }
     return { text: await statusText($) }
   })

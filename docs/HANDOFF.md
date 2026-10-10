@@ -194,6 +194,12 @@ claude plugin update usage-meter@d3nim-claude-mods
 - usage-meter 1.2.4: 서브에이전트 단계는 카드의 모델·강도를 안 바꿈(작업자 medium 이 새던 문제), 🔄 는 실제로 다른 모델일 때만, 한도 정보 없는 응답 뒤 '5시간 --' 안 됨, 응답 중엔 tok/s 대신 출력 토큰 수.
 - auto-model 압축: `$.session.compact` 는 턴(명령 포함) 중엔 reject → 명령이 끝난 뒤 시작하고 토스트로 결과.
 
+### auto-model 0.4.0 · usage-meter 1.2.5 (2026-10-10): 압축
+- 요약 비교 시험(claude -p, 사용자 설정·플러그인 끔, Opus 채점; 하네스 24.5만·stock 50만 토큰, 비용 합계 $20.09): Opus 사실 48/50·틀림 0, Sonnet 47/50·틀림 1(금지 규칙을 일반화), Haiku 21/25·틀림 1(승인 범위) → Haiku 제외. Sonnet 에 '모든 사용자 메시지' 섹션을 넣으니 stock 에서 24/25·틀림 0. 결과물: 그 세션 scratchpad sumtest/.
+- 쉬고 와서(cold) 카드 [압축]: Sonnet 요약(1~8 섹션) + 사용자 메시지 원문 섹션(코드가 결정적으로 추출: 시스템 알림·명령 출력·다른 세션 메시지·이전 압축 요약·이미지 경로 제외, `!` 명령은 '(! 실행)' 앞 120자, 300자 넘는 글은 앞 200자 + […N자 생략]). 실패하면 core.
+- 작업 중(warm) 85%(`/auto-model warn`) 알림, [나중에] 는 +5%p. [압축] 은 core(원래 모델) + 사용자 메시지 섹션 메시지 추가. manual/auto trigger 는 손대지 않음.
+- 제약: 플러그인이 스스로 시작한 $.session.compact 에는 자기 session.compact 훅이 안 돈다 → 카드 버튼에서 usage-meter 가 `/auto-model compact-prep`(종류, 60초 유효) 후 직접 compact 를 부르고 auto-model 이 가로챈다. `/auto-model compact` 로 친 건 core 가 처리.
+
 ### 확인 못 한 것 (실기 확인 필요)
 - 실제 Claude Code 화면에서 밴드/`/dog`가 어떻게 보이는지, 15프레임 갱신이 부담 없는지.
 - 파이리(포켓몬) 실험 파일은 저작권 문제로 저장소에 올리기 전에 지웠다. 불꽃·테리 관련만 남김.

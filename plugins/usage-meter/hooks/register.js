@@ -554,12 +554,22 @@ const familyName = id => String(id || '').replace(/^claude-/, '').split('-')[0]
 const manTokens = n => (n >= 10000 ? Math.round(n / 10000) + '만' : Math.round(n / 1000) + '천')
 function hintRow($, hint, Box, Text, Button, width) {
   if (!hint) return null
-  const idle = hint.idleMinutes >= 60 ? Math.floor(hint.idleMinutes / 60) + '시간' + (hint.idleMinutes % 60 ? ' ' + (hint.idleMinutes % 60) + '분' : '') : hint.idleMinutes + '분'
-  const usd = '$' + (hint.rewriteUsd >= 10 ? Math.round(hint.rewriteUsd) : hint.rewriteUsd.toFixed(1))
-  const long = `⏰ ${idle} 쉬어서 캐시가 식었어요 · 다음 요청이 대화 ${manTokens(hint.tokens)} 토큰을 다시 써요 (API 환산 약 ${usd}) · 압축하면 그 뒤 요청이 가벼워져요 `
-  const mid = `⏰ ${idle} 쉬어 캐시 식음 · 다음 요청에 ${manTokens(hint.tokens)} 토큰 다시 씀 (약 ${usd}) `
-  const short = `⏰ 캐시 식음 · ${manTokens(hint.tokens)} 토큰 다시 씀 `
-  const room = width - (Button ? 14 : 0)
+  let long, mid, short, later
+  if (hint.kind === 'warm') {
+    // 작업 중 대화가 많이 참: 지금은 캐시가 살아 있어 원래 모델이 싸게 압축한다
+    long = `📦 대화 ${hint.percent}% 찼어요 · 지금은 기억이 살아 있어서 싸게 압축돼요 `
+    mid = `📦 대화 ${hint.percent}% · 지금 압축하면 싸요 `
+    short = `📦 ${hint.percent}% · 압축? `
+    later = '나중에'
+  } else {
+    const idle = hint.idleMinutes >= 60 ? Math.floor(hint.idleMinutes / 60) + '시간' + (hint.idleMinutes % 60 ? ' ' + (hint.idleMinutes % 60) + '분' : '') : hint.idleMinutes + '분'
+    const usd = '$' + (hint.rewriteUsd >= 10 ? Math.round(hint.rewriteUsd) : hint.rewriteUsd.toFixed(1))
+    long = `⏰ ${idle} 쉬어서 캐시가 식었어요 · 다음 요청이 대화 ${manTokens(hint.tokens)} 토큰을 다시 써요 (API 환산 약 ${usd}) · 압축하면 그 뒤 요청이 가벼워져요 `
+    mid = `⏰ ${idle} 쉬어 캐시 식음 · 다음 요청에 ${manTokens(hint.tokens)} 토큰 다시 씀 (약 ${usd}) `
+    short = `⏰ 캐시 식음 · ${manTokens(hint.tokens)} 토큰 다시 씀 `
+    later = '계속'
+  }
+  const room = width - (Button ? 16 : 0)
   const text = visible(long) <= room ? long : visible(mid) <= room ? mid : short
   return Box({
     key: 'auto-hint',
@@ -568,13 +578,26 @@ function hintRow($, hint, Box, Text, Button, width) {
       Text({ key: 'ah-t', color: '#ffd166', children: [text] }),
       ...(Button
         ? [
-            Button({ key: 'ah-compact', label: '압축', onPress: () => void $command($, 'compact') }),
+            Button({ key: 'ah-compact', label: '압축', onPress: () => void compactFromCard($) }),
             Text({ key: 'ah-sp', children: [' '] }),
-            Button({ key: 'ah-skip', label: '계속', dimColor: true, onPress: () => void $command($, 'dismiss') }),
+            Button({ key: 'ah-skip', label: later, dimColor: true, onPress: () => void $command($, 'dismiss') }),
           ]
         : []),
     ],
   })
+}
+// [압축]: auto-model 에 이 압축이 어떤 건지(쉬고 옴/작업 중) 알리고 여기서 압축을 시작한다. auto-model 은 자기가 시작한 압축은
+// 가로챌 수 없어서(자기 훅이 안 돈다), 쉬고 온 뒤 Sonnet 요약은 이 경로로만 된다
+async function compactFromCard($) {
+  await $command($, 'compact-prep')
+  try {
+    const r = await $.session.compact()
+    if (r && r.skip) return void $.ui.toast('압축하지 않았어요: ' + r.skip)
+    const fmt = n => (n >= 10000 ? Math.round(n / 10000) + '만' : Math.round(n / 1000) + '천') + ' 토큰'
+    $.ui.toast('압축했어요' + (r && r.tokensBefore && r.tokensAfter ? ` (${fmt(r.tokensBefore)} → ${fmt(r.tokensAfter)})` : ''))
+  } catch (err) {
+    $.ui.toast('압축을 못 했어요 (' + String((err && err.message) || err).slice(0, 100) + ') · /compact 를 직접 입력해 주세요')
+  }
 }
 const $command = ($, args) => $.command.run({ command: 'auto-model', args }).catch(() => {})
 

@@ -262,13 +262,16 @@ test("auto-model's compact hint shows under Terry, with its two buttons", async 
   on('state.get', (_: unknown, e: any, next: any) => (e.plugin === 'auto-model' && e.key === 'hint' ? { value: { value: hint, version: 1 } } : next(e)))
   const ran: string[] = []
   on('command.run', (_: unknown, e: any, next: any) => (e.command === 'auto-model' ? (ran.push(e.args), { text: 'ok' }) : next(e)))
+  let compactions = 0
+  on('session.compact', () => (compactions++, { messages: [{ role: 'user', text: '요약', toolUses: [] }], tokensBefore: 460000, tokensAfter: 30000 }))
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'terry', args: '' } as never)
   const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 160 } as never })
   expect(await ui.find({ type: 'Text', text: /1시간 12분 쉬어서 캐시가 식었어요.*46만 토큰.*\$3\.7/ })).toBeDefined()
   await ui.press({ key: 'ah-compact' } as never)
   await ui.press({ key: 'ah-skip' } as never)
-  expect(ran).toEqual(['compact', 'dismiss'])
+  expect(ran).toEqual(['compact-prep', 'dismiss']) // the card tells auto-model, then starts the compaction itself
+  expect(compactions).toBe(1)
   await ui.unmount()
 })
 
@@ -300,5 +303,17 @@ test("a subagent's request does not change the card's model or effort", async ($
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: /^high$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^medium$/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test("auto-model's in-work compact hint says how full the conversation is", async ($, on) => {
+  engine(on)
+  const hint = { kind: 'warm', id: 1, percent: 86, idleMinutes: 0, tokens: 860000, rewriteUsd: 0, model: 'claude-opus-5-5' }
+  on('state.get', (_: unknown, e: any, next: any) => (e.plugin === 'auto-model' && e.key === 'hint' ? { value: { value: hint, version: 1 } } : next(e)))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 160 } as never })
+  expect(await ui.find({ type: 'Text', text: /📦 대화 86% 찼어요/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'ah-skip' } as never)).toBeDefined()
   await ui.unmount()
 })

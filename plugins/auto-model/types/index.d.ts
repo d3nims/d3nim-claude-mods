@@ -1,5 +1,9 @@
 // auto-model 이 세션 동안 들고 있는 값. usage-meter 가 hint 를 읽어 테리 카드 아래에 그린다.
 export type AutoModelHint = {
+  /** cold: 쉬고 와서 캐시가 식음 (압축하면 Sonnet 요약) · warm: 작업 중 대화가 많이 참 (원래 모델이 싸게 압축) */
+  kind?: 'cold' | 'warm'
+  /** warm 일 때 대화가 찬 정도 (%) */
+  percent?: number
   /** 이 제안이 가리키는 마지막 모델 호출 시각 (ms). 같은 쉼에 대한 제안은 같은 id */
   id: number
   /** 마지막 모델 호출 뒤 지난 시간 (분) */
