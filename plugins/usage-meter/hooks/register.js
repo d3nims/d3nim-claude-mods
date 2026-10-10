@@ -554,7 +554,7 @@ async function autoRoute($) {
     return null
   }
 }
-// auto-model 의 절약: 오늘 이 컴퓨터에서 내 사용량 대비 몇 % 아꼈는지 (모르면 달러). 아낀 게 있을 때만 카드 아래 한 줄.
+// auto-model 의 절약: 오늘 이 PC 의 모든 세션 합계로 몇 % 아꼈는지 (모르면 달러). 아낀 게 있을 때만 카드 아래 한 줄.
 // 게이지 % 환산은 계정을 같이 쓰면 어림값이라 /auto-model 상세에만 둔다
 const AUTO_SAVING = { plugin: 'auto-model', key: 'saving' }
 async function autoSaving($) {
@@ -568,7 +568,8 @@ async function autoSaving($) {
 function savingRow(sv, Text, width) {
   if (!sv) return null
   const pct = sv.myPct != null ? sv.myPct.toFixed(sv.myPct < 10 ? 1 : 0) + '%' : null
-  const text = [pct ? `💰 오늘 내 사용량의 약 ${pct} 아낌` : `💰 오늘 약 $${sv.usdToday.toFixed(2)} 아낌`, pct ? `💰 약 ${pct} 아낌` : null]
+  // 이 세션이 아니라 이 PC 의 모든 세션 합계라서 범위를 적는다. 쓴 값이 적어 비율이 아직이면 달러로 (집계 중)
+  const text = [pct ? `💰 오늘 이 PC 합계 약 ${pct} 아낌` : `💰 오늘 이 PC 약 $${sv.usdToday.toFixed(2)} 아낌 (비율 집계 중)`, pct ? `💰 오늘 약 ${pct} 아낌` : `💰 약 $${sv.usdToday.toFixed(2)} 아낌`]
     .find(t => t && visible(t) <= width)
   return text ? Text({ key: 'auto-saving', dimColor: true, children: [text] }) : null
 }

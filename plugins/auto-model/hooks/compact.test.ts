@@ -9,7 +9,7 @@ const OPUS = 'claude-opus-5-5'
 function engine(on: any) {
   mock.store(on)
   const clock = mock.clock(on)
-  const world: any = { percent: 40, coreCompactions: 0, completions: [] as any[], hint: null, compacted: null, asks: [] as any[] }
+  const world: any = { completeUsage: { input_tokens: 400000, output_tokens: 6000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, percent: 40, coreCompactions: 0, completions: [] as any[], hint: null, compacted: null, asks: [] as any[] }
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: {} }))
   on('ui.toast', () => ({ value: {} }))
@@ -18,6 +18,7 @@ function engine(on: any) {
   on('state.set', (_: unknown, e: any, next: any) => {
     if (e.plugin === 'auto-model' && e.key === 'hint') world.hint = e.value
     if (e.plugin === 'auto-model' && e.key === 'ask') world.asks.push(e.value)
+    if (e.plugin === 'auto-model' && e.key === 'memory') world.memory = e.value
     return next(e)
   })
   on('turn.step', async function* (_: unknown, e: any) {
@@ -29,7 +30,7 @@ function engine(on: any) {
   })
   on('model.complete', (_: unknown, e: any) => {
     world.completions.push(e)
-    return { value: { isAnswered: true, text: '1. 목표 …\n5. 승인·금지 …', usage: { input_tokens: 400000, output_tokens: 6000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+    return { value: { isAnswered: true, text: '1. 목표 …\n5. 승인·금지 …', usage: world.completeUsage } }
   })
   return { clock, world }
 }
@@ -84,7 +85,7 @@ test('after a break, the card\'s compact button has Sonnet summarize, with the u
   const status = ((await $.command.run({ command: 'auto-model', args: '' } as never)) as any).text
   expect(status).toMatch(/쉬고 와서 · Sonnet 요약/)
   expect(status).toMatch(/오늘 약 \$[\d.]+ 절약 \(일꾼 0번 · 압축 1번\)/) // Opus would have rewritten 400K at $8/MTok
-  expect(status).toMatch(/💰 오늘 내 사용량의 약 \d+% 아낌 \(실제 \$[\d.]+ 씀\)/) // what this computer spent today, the summary included
+  expect(status).not.toMatch(/합계 약 \d+% 아낌/) // under $1 spent today on this PC: too little to give a share yet
 })
 
 test('while working, the card\'s button keeps the main model but adds the user messages verbatim', async ($, on) => {
@@ -142,4 +143,35 @@ test('/auto-model compact typed by hand asks usage-meter (so a cold one can stil
   await clock.advance(3500)
   await clock.advance(400)
   expect(world.coreCompactions).toBe(1)
+})
+
+test('after a /compact typed by hand the break hint does not come back, even after a reload; a later small compaction saves little', async ($, on) => {
+  const { clock, world } = engine(on)
+  on('session.id', () => ({ value: 's1' }))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await step($, 1)
+  await clock.advance(61 * MIN)
+  expect(world.hint).toMatchObject({ kind: 'cold' })
+  await $.session.compact({ trigger: 'manual', messages: MESSAGES } as never) // core: 40만 → 3만
+  expect(world.hint ?? null).toBeNull()
+  await clock.advance(31000)
+  expect(world.hint ?? null).toBeNull()
+  // the remembered size is the compacted one
+  const status = ((await $.command.run({ command: 'auto-model', args: '' } as never)) as any).text
+  expect(status).toMatch(/대화 3만 토큰/)
+  expect(world.memory?.last?.tokens).toBe(30000) // what a reload brings back
+})
+
+test('a Sonnet compaction counts its saving from what it actually read, not a size remembered from before', async ($, on) => {
+  const { clock, world } = engine(on)
+  world.completeUsage = { input_tokens: 10704, output_tokens: 8044, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await step($, 1) // remembered: 40만
+  await clock.advance(61 * MIN)
+  await $.command.run({ command: 'auto-model', args: 'compact-prep' } as never)
+  await $.session.compact({ trigger: 'plugin', messages: MESSAGES } as never)
+  const status = ((await $.command.run({ command: 'auto-model', args: '' } as never)) as any).text
+  const saved = Number(status.match(/오늘 약 \$([\d.]+) 절약/)?.[1])
+  expect(saved).toBeLessThan(0.5) // Opus reading ~1만 tokens would have cost cents, not the $5 of 65만
+  expect(status).toMatch(/1만 토큰 →/)
 })

@@ -376,10 +376,10 @@ test("auto-model's savings show under Terry as a share of my own usage today, do
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'terry', args: '' } as never)
   const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 120 } as never })
-  expect(await ui.find({ type: 'Text', text: /💰 오늘 약 \$1\.20 아낌$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /💰 오늘 이 PC 약 \$1\.20 아낌 \(비율 집계 중\)/ })).toBeDefined()
   saving = { usdToday: 1.2, usdWeek: 3, fivePct: 4.2, weekPct: 0.8, calibrated: true, myPct: 18.4 }
   await ui.redraw()
-  expect(await ui.find({ type: 'Text', text: /💰 오늘 내 사용량의 약 18% 아낌/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /💰 오늘 이 PC 합계 약 18% 아낌/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /아낌.*(5시간|주간)/ } as never)).toBeUndefined() // the gauge share stays in /auto-model
   await ui.unmount()
 })

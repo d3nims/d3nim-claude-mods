@@ -105,7 +105,7 @@ const contextOf = u => (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) 
 // 1시간 캐시에 대화를 다시 쓰는 값 (답 값은 빼고)
 const rewriteUsd = (model, tokens) => turnCost(model, tokens, false, 0)
 
-const tokensText = n => (n >= 10000 ? Math.round(n / 10000) + '만' : (n / 1000).toFixed(0) + '천') + ' 토큰'
+const tokensText = n => (n >= 10000 ? Math.round(n / 10000) + '만' : n >= 1000 ? (n / 1000).toFixed(0) + '천' : Math.round(n)) + ' 토큰'
 const idleText = min => (min >= 60 ? Math.floor(min / 60) + '시간' + (min % 60 ? ' ' + (min % 60) + '분' : '') : min + '분')
 const timeText = at => new Date(at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 const usd = n => '$' + n.toFixed(n >= 1 ? 2 : 3)
@@ -133,13 +133,18 @@ async function check($) {
   if (!settings.enabled || !last) return
   const idle = now - last.at
   const cold = idle >= settings.ttlMinutes * 60000
+  let live = null // 지금 대화 크기 (압축 뒤엔 기억해 둔 값보다 이게 맞다)
+  try {
+    live = (await $.session.usage()).context.tokens
+  } catch {}
+  const size = live > 0 ? Math.min(last.tokens, live) : last.tokens
   // 쉬고 옴: 캐시가 식었고 대화가 길다 → 압축하면 Sonnet 이 요약 (같은 품질에 절반 값, 시험으로 확인)
-  if (cold && last.tokens >= settings.minTokens && dismissedFor !== last.at) {
+  if (cold && size >= settings.minTokens && dismissedFor !== last.at) {
     const idleMinutes = Math.floor(idle / 60000)
     if (shownKind === 'cold' && idleMinutes === shownMinutes) return
     shownKind = 'cold'
     shownMinutes = idleMinutes
-    await setHint($, { kind: 'cold', id: last.at, idleMinutes, tokens: last.tokens, rewriteUsd: rewriteUsd(last.model, last.tokens), model: last.model })
+    await setHint($, { kind: 'cold', id: last.at, idleMinutes, tokens: size, rewriteUsd: rewriteUsd(last.model, size), model: last.model })
     return
   }
   // 작업 중: 대화가 많이 찼다 → 지금은 캐시가 살아 있어 원래 모델이 싸게 압축한다
@@ -215,8 +220,9 @@ async function addSaving($, kind, amount) {
     await $.store.set('savings', all)
   } catch {}
 }
-// 오늘 내 사용량 대비 아낀 비율 (%): 순절약 / (실제 쓴 값 + 순절약). 쓴 값을 아직 모르거나 아낀 게 없으면 null
-const myShare = (spent, net) => (spent > 0 && net > 0 ? (net / (spent + net)) * 100 : null)
+// 오늘 이 PC 사용량 대비 아낀 비율 (%): 순절약 / (실제 쓴 값 + 순절약). 쓴 값이 $1 도 안 되면(설치 직후 등) 비율이 크게 튀어서
+// 아직 집계 중(null), 아낀 게 없어도 null
+const myShare = (spent, net) => (spent >= 1 && net > 0 ? (net / (spent + net)) * 100 : null)
 async function savingsText($) {
   let all = {}
   try {
@@ -232,7 +238,7 @@ async function savingsText($) {
   const per = await dollarsPerPct($)
   const spent = (t.spent || 0) + pendingSpent
   const share = myShare(spent, t.net)
-  const mine = share != null ? `오늘 내 사용량의 약 ${Math.round(share)}% 아낌 (실제 ${usd(spent)} 씀) · ` : ''
+  const mine = share != null ? `오늘 이 PC 합계 약 ${Math.round(share)}% 아낌 (이 PC 의 모든 세션이 실제로 ${usd(spent)} 씀) · ` : ''
   const gauge = per.five_hour && per.seven_day ? `게이지로 5시간 약 ${(Math.max(0, t.net) / per.five_hour).toFixed(1)}% · 주간 약 ${(Math.max(0, wsum) / per.seven_day).toFixed(1)}% · ` : `게이지 보정 중 (표본 5시간 ${per.n5}/5 · 주간 ${per.n7}/5) · `
   return '💰 ' + mine + gauge + `오늘 약 ${usd(Math.max(0, t.net))} 절약 (일꾼 ${t.workers}번 · 압축 ${t.compactions}번` + (t.losses ? ` · 실패 손해 ${usd(t.losses)} 뺌` : '') + `) · 최근 7일 약 ${usd(wsum)}` +
     (wpot ? ` · 일꾼을 켰다면 약 ${usd(wpot)} 더 절약 가능 (shadow)` : '') + ' (API 환산 어림값. 게이지 % 는 이 컴퓨터 세션들의 비용과 게이지 변화로 어림한 1% 당 금액으로 환산)'
@@ -433,7 +439,11 @@ async function sonnetCompact($, e) {
   })
   if (!r || !r.isAnswered || !String(r.text || '').trim()) return null
   const text = SUMMARY_HEAD + r.text.trim() + '\n\n' + userMessagesSection(e.messages)
-  return { messages: [{ role: 'user', text, toolUses: [] }], tokensBefore: last ? last.tokens : undefined, usage: r.usage }
+  // 크기는 실제로 잰 값으로: 압축 전 = Sonnet 이 실제로 읽은 양, 압축 뒤 = 요약 글 길이로 어림 (기억해 둔 last.tokens 는
+  // 그새 /compact 로 줄었을 수 있어서 쓰지 않는다)
+  const u = r.usage || {}
+  const read = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0)
+  return { messages: [{ role: 'user', text, toolUses: [] }], tokensBefore: read || undefined, tokensAfter: Math.ceil(text.length / 2), usage: r.usage }
 }
 
 // ---- 2단계: 모델 고르기 ----
@@ -579,7 +589,7 @@ async function statusText($) {
   lines.push(per.five_hour && per.seven_day
     ? `게이지 환산: 5시간 1% ≈ $${per.five_hour.toFixed(2)} · 주간 1% ≈ $${per.seven_day.toFixed(2)} (이 컴퓨터 세션들의 비용과 게이지 변화로 어림, 표본 ${per.n5}·${per.n7}개)`
     : `게이지 환산 보정 중 (표본 5시간 ${per.n5}/5 · 주간 ${per.n7}/5)`)
-  lines.push('(같은 계정을 다른 사람·다른 PC 와 같이 쓰면 게이지 환산은 어림값이에요. 내 사용량 대비 % 는 이 컴퓨터 숫자만 써서 정확해요)')
+  lines.push('(같은 계정을 다른 사람·다른 PC 와 같이 쓰면 게이지 환산은 어림값이에요. 이 PC 합계 % 는 이 컴퓨터 숫자만 써서 정확해요)')
   const mode = modeOf()
   lines.push('auto-model ' + (settings.enabled ? '켜짐' : '꺼짐') + ' · 자동 전환: ' + { auto: '켜짐', off: '꺼짐', stopped: '/model 로 직접 골라서 이 세션은 멈춤', pin: (settings.pin || '') + ' 고정' }[mode] + (settings.mainHaiku ? ' · 메인 Haiku 허용' : ''))
   if (route) lines.push(`지금: ${prettyName(route.model)}` + (familyOf(route.model) !== familyOf(route.base) ? ` (원래 ${prettyName(route.base)})` : '') + ` · ${route.reason}`)
@@ -905,7 +915,11 @@ export function register(on) {
       if (mode && r && r.messages) r = { ...r, messages: [...r.messages, { role: 'user', text: userMessagesSection(e.messages), toolUses: [] }] }
     }
     if (!e.agentId && r && r.messages) {
-      if (last && r.tokensAfter) last = { ...last, tokens: r.tokensAfter }
+      // 어떤 압축이든(직접 친 /compact·자동 포함) 대화 크기를 새로 적고 세션 상태에도 남긴다: 안 그러면 /reload-plugins 뒤
+      // 압축 전 크기가 되살아나 이미 압축된 대화에 또 압축을 권했다
+      if (last) last = { ...last, tokens: r.tokensAfter || Math.min(last.tokens, 30000) }
+      if (last) dismissedFor = last.at
+      await saveMemory($)
       await clearHint($)
       if (mode) compactHandled = true
       await logCompaction($, { trigger: e.trigger, mode, model, before: r.tokensBefore, after: r.tokensAfter, usage: r.usage })
@@ -914,7 +928,9 @@ export function register(on) {
         // 쉬고 와서 Sonnet 이 압축: 원래 모델이 대화 전체를 다시 써서 요약했다면 대비
         const actual = usageCost(model, r.usage)
         const base = current || sessionBase || MODELS.opus
-        const would = opusWouldCompact(base, r.tokensBefore || (r.usage.input_tokens || 0) + (r.usage.cache_read_input_tokens || 0) + (r.usage.cache_creation_input_tokens || 0), r.usage.output_tokens)
+        // 원래 모델이 같은 대화를 읽었다면: Sonnet 이 실제로 읽은 양 기준 (작은 대화면 절약도 작다)
+        const read = (r.usage.input_tokens || 0) + (r.usage.cache_read_input_tokens || 0) + (r.usage.cache_creation_input_tokens || 0)
+        const would = opusWouldCompact(base, read, r.usage.output_tokens)
         await addSaving($, 'compact', would - actual)
         $.ui.toast(`📦 Sonnet 압축 약 ${usd(actual)} · ${prettyName(base).split(' ')[0]}였다면 약 ${usd(would)} → 약 ${usd(Math.max(0, would - actual))} 절약`)
       }
