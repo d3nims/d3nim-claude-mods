@@ -286,3 +286,19 @@ test("auto-model's route shows on the card's model row", async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /📌 Opus 5\.5/ })).toBeDefined()
   await ui.unmount()
 })
+
+test("a subagent's request does not change the card's model or effort", async ($, on) => {
+  engine(on)
+  on('turn.step', async function* (_: unknown, e: any) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 120 } as never })
+  for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'claude-opus-5-5', effort: 'high', messageCount: 3 } as never)) {}
+  for await (const _ of $.turn.step({ turnId: 'w', index: 0, model: 'claude-sonnet-5-5', effort: 'medium', messageCount: 3, agentId: 'worker-1' } as never)) {}
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /^high$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^medium$/ })).toBeUndefined()
+  await ui.unmount()
+})

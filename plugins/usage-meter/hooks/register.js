@@ -190,8 +190,11 @@ function turnLine(t, live) {
   const out = t.output + estimate(t.liveChars)
   const genSecs = t.genStart ? Math.max(0.5, (end - t.genStart) / 1000) : 0
   const tps = genSecs ? Math.round(out / genSecs) : 0
+  // 응답 중에는 지금까지 쓴 출력 토큰 (계속 는다). 속도는 끝난 뒤에만: 생각하거나 도구를 돌리는 동안엔 보이는 답이
+  // 늘지 않아 시간만 흘러, 응답 중의 tok/s 는 점점 떨어져 보였다
+  const tail = live ? (out ? ' · 출력 ' + fmtTokens(out) : '') : tps ? ' · ' + tps + ' tok/s' : ''
   return {
-    time: (secs < 60 ? secs.toFixed(1) + '초' : Math.floor(secs / 60) + '분 ' + Math.round(secs % 60) + '초') + (tps ? ' · ' + tps + ' tok/s' : ''),
+    time: (secs < 60 ? secs.toFixed(1) + '초' : Math.floor(secs / 60) + '분 ' + Math.round(secs % 60) + '초') + tail,
     tokens: '입력 ' + fmtTokens(t.input) + ' · 출력 ' + fmtTokens(out) + ' · 캐시 ' + fmtTokens(t.cacheRead),
   }
 }
@@ -423,7 +426,10 @@ async function syncModel($) {
 }
 
 async function refresh($) {
-  usage = await $.session.usage()
+  const fresh = await $.session.usage()
+  // 한도 정보가 없는 응답(서브에이전트 결과 등) 뒤에는 '5시간 --' 로 비지 않게 지난 값을 둔다
+  if (usage && (!fresh.rateLimits || !fresh.rateLimits.length) && usage.rateLimits && usage.rateLimits.length) fresh.rateLimits = usage.rateLimits
+  usage = fresh
   try {
     modelId = await $.session.model()
   } catch (err) {
@@ -628,8 +634,10 @@ export function register(on) {
   on('turn.step', async function* ($, e, next) {
     const nextEffort = e.effort == null ? null : String(e.effort)
     stepCalls += 1
-    lastStepEffort = e.effort == null ? '(없음)' : String(e.effort)
-    if (e.model !== modelId || (nextEffort && nextEffort !== effort)) {
+    // 서브에이전트(작업자 포함)의 요청은 카드의 모델·추론 강도를 바꾸지 않는다: 그 모델·강도는 메인 대화의 것이 아니다
+    // (작업자 Sonnet 의 기본 강도 medium 이 카드에 'Opus 5.5 · medium' 으로 새어 보인 일이 있었다)
+    if (!e.agentId) lastStepEffort = e.effort == null ? '(없음)' : String(e.effort)
+    if (!e.agentId && (e.model !== modelId || (nextEffort && nextEffort !== effort))) {
       modelId = e.model
       if (nextEffort) {
         effort = nextEffort
@@ -896,7 +904,8 @@ export function register(on) {
       const routed = rt && rt.model && familyName(rt.model) !== familyName(rt.base)
       // 자동으로 바꿔 쓰는 중이면 실제로 쓰는 모델을 보여 준다
       const name = routed || (rt && rt.mode === 'pin') ? prettyModel(rt.model) : prettyModel(modelId)
-      const routeMark = !rt ? '' : rt.mode === 'pin' ? '📌 ' : rt.mode === 'stopped' ? '' : '🔄 '
+      // 🔄 은 실제로 다른 모델을 쓰고 있을 때만 (자동이 켜져 있다는 뜻으로 늘 띄우면 '바뀐 줄' 오해한다)
+      const routeMark = !rt ? '' : rt.mode === 'pin' ? '📌 ' : routed ? '🔄 ' : ''
       const routeTail = !rt || nano ? '' : routed && !tight ? ' ← ' + (prettyModel(rt.base) || '').split(' ')[0] : rt.mode === 'stopped' && !mini ? ' ✋' : ''
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
       const moodText = moodLabel(m, tight) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')

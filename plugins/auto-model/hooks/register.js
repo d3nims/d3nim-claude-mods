@@ -16,23 +16,27 @@
 //   - 판단: 로컬 규칙이 먼저, 애매하고 바꿀 만할 때만 작은 모델에게 묻는다 ($.model.classify). 밖으로 보내지 않는다.
 //   - 프롬프트 앞에 ~ 를 붙이면 그 요청은 원래 모델 그대로 (~ 는 떼고 보낸다).
 //
+// 3단계: 판단이 필요 없는 일(쓰기는 Sonnet, 찾기·읽기는 Haiku)은 Opus 대신 일꾼 서브에이전트가 맡는다 (기본은 shadow: 기록만).
+//   '@@ 요청' / '@@h 요청' 은 손으로 Sonnet / Haiku 일꾼에게.
+//
 // /auto-model                : 지금 상태
 // /auto-model on | off       : 전부 켜고 끄기 (제안과 자동 전환)
 // /auto-model auto | manual  : 자동 전환만 켜고 끄기
 // /auto-model pin <opus|sonnet|haiku> · unpin : 모델 고정 / 풀기
 // /auto-model haiku on | off : 메인 대화도 Haiku 까지 내릴지 (기본 off)
+// /auto-model worker on | shadow | off : 일꾼 (기본 shadow)
 // /auto-model light on | off : 기억 확인 질문('어디였지?')도 실제로 내릴지 (기본 off: '켰다면'만 기록하는 shadow)
 // /auto-model log            : 최근 판단 기록 (전환·보류 이유, 대화 크기, 캐시, 사용량)
 // /auto-model ttl <분> · min <천 토큰> : 캐시 식는 시간 (기본 60) · 제안할 대화 크기 (기본 150)
 // /auto-model compact [남길 내용] · dismiss · preview : 압축 / 이번 제안 닫기 / 제안 미리 보기 1분
 
-import { MODELS, familyOf, isRejection, isSearchy, prettyName, ruleOf, turnCost } from './route.js'
+import { MODELS, familyOf, isRejection, isSearchy, missedWorkerOf, prettyName, promptHead, ruleOf, taskOf, turnCost, usageCost, workerEstimate } from './route.js'
 
 const HINT = { plugin: 'auto-model', key: 'hint' }
 const ROUTE = { plugin: 'auto-model', key: 'route' }
 const MEMORY = { plugin: 'auto-model', key: 'memory' }
 
-const DEFAULTS = { enabled: true, ttlMinutes: 60, minTokens: 150000, route: 'auto', pin: null, mainHaiku: false, lightSwitch: false }
+const DEFAULTS = { enabled: true, ttlMinutes: 60, minTokens: 150000, route: 'auto', pin: null, mainHaiku: false, lightSwitch: false, worker: 'shadow' }
 let settings = { ...DEFAULTS }
 // 메인 대화의 마지막 모델 호출: 시각, 다음 요청이 다시 보낼 크기, 답한 모델
 let last = null
@@ -53,6 +57,13 @@ let decisions = [] // 최근 판단 (store 'decisions' 에도)
 let route = null // 카드에 보이는 상태
 let sessionId = null
 let lastAnswer = '' // 메인 대화의 직전 답 끝부분 (짧은 긍정이 승인인지 볼 때)
+// 3단계 일꾼
+let pendingWork = null // 방금 입력한 요청이 일꾼 후보면 { task, model, text, manual }
+const workerWaiters = new Map() // 일꾼 agentId -> resolve(turn.complete)
+const workerIds = new Set() // 우리가 띄운 일꾼: 끝나면 엔진이 결과를 메인 대화에 또 배달하는데, 이미 답으로 붙였으니 버린다
+const WORKER_WAIT_MS = 10 * 60000
+const turnTools = new Map() // 메인 턴 turnId -> 그 턴의 도구 호출 [{ tool, isError }] (사후 판정용)
+let liveTurnId = null
 
 // 판단 근거를 세션 상태에 적어 둔다 (/reload-plugins 는 모듈 변수를 비우지만 $.state 는 남는다)
 async function saveMemory($) {
@@ -130,13 +141,32 @@ async function clearHint($) {
   await setHint($, null)
 }
 
+// 압축: 명령이나 버튼이 도는 동안엔 엔진이 압축을 거절해서('턴이 도는 중'), 명령이 끝난 직후에 시작한다.
+// (자기 플러그인의 압축 훅은 자기 호출엔 돌지 않으므로, 쓴 토큰 기록도 여기서 한다)
 async function compactNow($, instructions) {
   await clearHint($)
-  const r = await $.session.compact(instructions ? { instructions } : undefined)
-  if (r && r.skip) return '압축하지 않았어요: ' + r.skip
-  const before = r && r.tokensBefore
-  const after = r && r.tokensAfter
-  return '압축했어요' + (before && after ? ` (${tokensText(before)} → ${tokensText(after)})` : '')
+  void (async () => {
+    await $.clock.sleep(300)
+    try {
+      const r = await $.session.compact(instructions ? { instructions } : undefined)
+      if (r && r.skip) {
+        $.ui.toast('auto-model: 압축하지 않았어요 — ' + r.skip)
+        return
+      }
+      const before = r && r.tokensBefore
+      const after = r && r.tokensAfter
+      if (last && after) last = { ...last, tokens: after }
+      try {
+        const log = (await $.store.get('compactions')) || []
+        log.push({ at: await $.clock.now(), trigger: 'plugin', before: before ?? null, after: after ?? null, usage: (r && r.usage) ?? null })
+        await $.store.set('compactions', log.slice(-20))
+      } catch {}
+      $.ui.toast('auto-model: 압축했어요' + (before && after ? ` (${tokensText(before)} → ${tokensText(after)})` : ''))
+    } catch (err) {
+      $.ui.toast('auto-model: 압축을 못 했어요 (' + String((err && err.message) || err).slice(0, 120) + ') · /compact 를 직접 입력해 주세요')
+    }
+  })()
+  return '압축을 시작할게요 (끝나면 알려 드려요)'
 }
 
 // ---- 2단계: 모델 고르기 ----
@@ -175,7 +205,7 @@ async function decide($, e) {
   const ctx = last ? last.tokens : 0
   const cur = current || base
   const warm = model => warmAt[familyOf(model)] != null && now - warmAt[familyOf(model)] < settings.ttlMinutes * 60000
-  const entry = { at: now, turnId: e.turnId, from: cur, ctx, baseWarm: warm(base) }
+  const entry = { at: now, turnId: e.turnId, from: cur, ctx, baseWarm: warm(base), prompt: p ? promptHead(p.text) : undefined }
   const pick = async (to, reason, extra = {}) => {
     Object.assign(entry, { to, reason }, extra)
     await remember($, entry)
@@ -239,6 +269,40 @@ async function decide($, e) {
   return pick(cand, `가벼움 · 바꾸는 쪽이 쌈 (${usd(sw)} < ${usd(stay)})`, { rule, label })
 }
 
+// ---- 3단계: 일꾼 ----
+// 판단이 필요 없는 일(쓰기는 Sonnet, 찾기·읽기는 Haiku)은 Opus 를 부르지 않고 일꾼 서브에이전트가 맡는다. 일꾼은 대화 전체가
+// 아니라 요청과 최근 몇 턴만 받는다. 일꾼의 답이 그 턴의 답으로 대화 끝에 붙으므로 Opus 의 캐시(대화 앞부분)는 그대로다.
+// (시제품 실측: 일꾼 턴 뒤 Opus 는 74만 토큰을 캐시로 그대로 읽고 새로 쓴 건 6~7천 토큰)
+async function recentContext($) {
+  try {
+    const msgs = await $.session.messages()
+    const tail = msgs.filter(m => !m.agentId && m.text).slice(-6)
+    return tail.map(m => (m.role === 'user' ? '사용자: ' : 'Claude: ') + m.text.slice(0, 1500)).join('\n\n')
+  } catch {
+    return ''
+  }
+}
+
+// 일꾼을 띄우고 끝날 때까지 기다린다: 답 텍스트, 또는 null (못 띄움 / 시간 초과 / 중단 / 맥락 부족)
+async function runWorker($, work) {
+  const context = await recentContext($)
+  const prompt =
+    '아래 요청을 처리해 주세요. 당신은 긴 대화의 일부만 넘겨받은 작업자예요. 요청을 그대로 처리하고, 결과를 사용자에게 보여 줄 짧은 보고로 끝내세요. ' +
+    '대화의 다른 부분이 꼭 필요해 보이면 추측하지 말고 첫 줄을 "맥락이 부족해요:" 로 시작해 답하세요.\n\n' +
+    (context ? '## 최근 대화 (참고)\n' + context + '\n\n' : '') +
+    '## 요청\n' + work.text
+  const sp = await $.agent.spawn({ prompt, description: 'auto-model 일꾼', subagentType: 'general-purpose', model: work.model })
+  if (!sp || !sp.agentId) return { failed: '일꾼을 못 띄움' }
+  workerIds.add(sp.agentId)
+  const done = await Promise.race([new Promise(resolve => workerWaiters.set(sp.agentId, resolve)), $.clock.sleep(WORKER_WAIT_MS).then(() => null)])
+  workerWaiters.delete(sp.agentId)
+  if (!done) return { failed: '시간 초과', agentId: sp.agentId }
+  if (done.isAborted) return { failed: '중단됨', agentId: sp.agentId }
+  const answer = String(done.answer || '')
+  if (!answer.trim() || /^\s*맥락이 부족해요/.test(answer)) return { failed: '맥락 부족', answer, agentId: sp.agentId, usage: done.usage }
+  return { answer, agentId: sp.agentId, usage: done.usage, model: (done.usage && done.usage.model) || sp.model }
+}
+
 async function statusText($) {
   const lines = []
   const mode = modeOf()
@@ -289,12 +353,34 @@ async function logText($) {
     }
     lines.push(`기억 확인 질문 전환 (shadow): 후보 ${shadows.length}번 중 다음 턴이 무거운 일·승인 ${heavyNext}번 · 켰다면 예상 손익 ${pnl >= 0 ? '+' : '−'}${usd(Math.abs(pnl))} (API 환산, +면 아꼈을 것)` + (settings.lightSwitch ? ' · 지금 켜짐' : ' · 지금 꺼짐 (/auto-model light on)'))
   }
+  // 일꾼 shadow 요약: 일꾼 후보였던 턴을 실제로 원래 모델이 처리한 값 vs 일꾼이었다면의 어림값
+  const ws = all.filter(d => d.workerShadow && d.usage)
+  if (ws.length) {
+    const actual = ws.reduce((a, d) => a + usageCost(d.to, d.usage), 0)
+    const would = ws.reduce((a, d) => a + d.workerShadow.est, 0)
+    const counts = ws.reduce((a, d) => ((a[d.workerShadow.task] = (a[d.workerShadow.task] || 0) + 1), a), {})
+    lines.push(`일꾼 후보 (shadow): ${ws.length}번 (쓰기 ${counts.write || 0} · 찾기·읽기 ${counts.search || 0}) · 실제 ${usd(actual)} vs 일꾼이었다면 약 ${usd(would)} (API 환산)` + (settings.worker === 'on' ? ' · 지금 켜짐' : settings.worker === 'shadow' ? ' · 지금 기록만 (/auto-model worker on 으로 켜기)' : ' · 지금 꺼짐'))
+  }
+  // 놓친 일꾼 후보: 원래 모델이 처리했지만 실제 행동(도구 1~3번, 단순 쓰기·찾기, 짧은 출력)으로 보면 일꾼으로 충분했던 턴
+  const handled = all.filter(d => !d.worker && d.usage)
+  const missed = handled.filter(d => d.missedWorker)
+  if (handled.length) {
+    const saved = missed.reduce((a, d) => a + Math.max(0, usageCost(d.to, d.usage) - d.missedWorker.est), 0)
+    const mc = missed.reduce((a, d) => ((a[d.missedWorker.task] = (a[d.missedWorker.task] || 0) + 1), a), {})
+    const ex = missed.filter(d => d.prompt).slice(-2).map(d => `'${d.prompt.slice(0, 30)}'`).join(', ')
+    lines.push(`원래 모델 처리 ${handled.length}번 중 놓친 일꾼 후보 ${missed.length}번 (쓰기 ${mc.write || 0} · 찾기 ${mc.search || 0}) · 일꾼이었다면 약 ${usd(saved)} 절약` + (ex ? ` · 예: ${ex}` : ''))
+  }
+  const wr = all.filter(d => d.worker)
+  if (wr.length) lines.push(`일꾼이 실제로 맡은 턴: ${wr.length}번 · 일꾼 비용 합 약 ${usd(wr.reduce((a, d) => a + (d.usage ? usageCost(d.to, d.usage) : d.est || 0), 0))}`)
   lines.push('최근 판단 (시각 · 이전→이번 · 이유 · 대화 · 캐시 · 이번 턴 사용량):')
   for (const d of all.slice(-15)) {
     const u = d.usage
     lines.push(
       `  ${d.shadow ? '[shadow] ' : ''}${timeText(d.at)} · ${prettyName(d.from)}→${prettyName(d.to)} · ${d.reason}` +
         (d.shadow && d.next ? ` · 다음 턴: ${d.next.rule}` : '') +
+        (d.prompt ? ` · "${d.prompt.slice(0, 40)}"` : '') +
+        (d.missedWorker ? ` · [놓친 일꾼 후보: ${d.missedWorker.task === 'write' ? '쓰기' : '찾기'} · ${d.missedWorker.why}]` : '') +
+        (d.workerShadow ? ` · [일꾼 후보: ${d.workerShadow.task === 'write' ? '쓰기' : '찾기·읽기'}, ${prettyName(d.workerShadow.model).split(' ')[0]} 였다면 약 ${usd(d.workerShadow.est)}]` : '') +
         (d.ctx ? ` · ${tokensText(d.ctx)}` : '') +
         (d.baseWarm != null ? ` · 원래 모델 캐시 ${d.baseWarm ? '따뜻' : '식음'}` : '') +
         (u ? ` · 입력 ${u.input_tokens} 캐시읽기 ${u.cache_read_input_tokens} 캐시쓰기 ${u.cache_creation_input_tokens} 출력 ${u.output_tokens}` : ''),
@@ -323,6 +409,38 @@ export function register(on) {
   // (서브에이전트의 호출은 메인 캐시와 무관해서 건드리지 않는다)
   on('turn.step', async function* ($, e, next) {
     if (e.agentId) return yield* next(e)
+    liveTurnId = e.turnId
+    // 일꾼에게 맡길 턴: 첫 단계에서 Opus 대신 일꾼을 띄우고, 일꾼의 답을 이 턴의 답으로 낸다
+    const work = e.index === 0 ? pendingWork : null
+    if (work) pendingWork = null
+    const workerOn = work && settings.enabled && (work.manual || (settings.worker === 'on' && settings.route === 'auto' && !stopped && !settings.pin))
+    if (workerOn) {
+      const started = await $.clock.now()
+      let res
+      try {
+        res = await runWorker($, work)
+      } catch (err) {
+        res = { failed: '일꾼 오류: ' + String((err && err.message) || err).slice(0, 80) }
+      }
+      const entry = { at: started, turnId: e.turnId, from: current || e.model, to: res.model || work.model, reason: '', task: work.task, worker: true, manual: work.manual, ctx: last ? last.tokens : 0, usage: res.usage || null, est: workerEstimate(res.model || work.model), prompt: promptHead(work.text) }
+      if (res.failed && res.failed !== '맥락 부족') {
+        entry.reason = `일꾼 ${res.failed} → 원래 모델로`
+        entry.to = e.model
+        await remember($, entry)
+        return yield* next(e) // 못 하면 이 턴은 Opus 가
+      }
+      const name = prettyName(res.model || work.model).split(' ')[0]
+      const secs = Math.round(((await $.clock.now()) - started) / 1000)
+      const text = (res.failed ? `🐕 ${name} 일꾼이 맥락이 부족하다고 했어요. 다음 요청은 원래 모델이 이어받아요.\n\n` : `🐕 ${name} 가 처리했어요 (일꾼, ${secs}초)\n\n`) + (res.answer || '')
+      if (res.failed) cooldown = Math.max(cooldown, 1)
+      entry.reason = res.failed ? '일꾼: 맥락 부족' : `일꾼 (${work.task === 'write' ? '쓰기' : '찾기·읽기'}${work.manual ? ', 손으로' : ''})`
+      await remember($, entry)
+      lastAnswer = text.slice(-200)
+      // (메인 턴의 사용량은 비워 둔다: 일꾼의 작은 대화 크기가 메인 대화 크기로 잡히지 않게. 일꾼 비용은 서브에이전트 쪽에 잡힌다)
+      yield { kind: 'text', index: 0, text }
+      yield { kind: 'stop', stopReason: 'end_turn', usage: null }
+      return { turnId: e.turnId, index: e.index, answer: text, toolUses: [], stopReason: 'end_turn', usage: null }
+    }
     let model = turnModel.get(e.turnId)
     if (model === undefined) {
       try {
@@ -332,6 +450,12 @@ export function register(on) {
       }
       turnModel.set(e.turnId, model)
       if (turnModel.size > 50) turnModel.delete(turnModel.keys().next().value)
+      // 일꾼 shadow: 실제로는 이 모델이 처리하고, '일꾼이었다면'만 이 턴의 판단 기록에 붙인다 (턴이 끝나면 실제 사용량과 비교)
+      const d = decisions.length && decisions[decisions.length - 1]
+      if (work && d && d.turnId === e.turnId) {
+        const wm = work.model === 'haiku' ? MODELS.haiku : MODELS.sonnet
+        d.workerShadow = { task: work.task, model: wm, est: workerEstimate(wm) }
+      }
     }
     const r = yield* next(model && model !== e.model ? { ...e, model } : e)
     if (r && r.usage) {
@@ -374,9 +498,29 @@ export function register(on) {
   // 입력: 제안은 할 일을 다 했다 (그 요청이 어차피 다시 쓴다). 2단계 판단을 위해 문장을 적어 둔다.
   // (끼어들기만 하고 막지 않는다: 실패해도 입력은 그대로 간다)
   on('prompt.submit', async ($, e, next) => {
-    await clearHint($)
     const text = typeof e.text === 'string' ? e.text : ''
+    // 우리가 띄운 일꾼의 결과가 메인 대화에 또 배달되면 넣지 않는다 (그대로 두면 그 배달이 새 턴이 되어 Opus 가 대화 전체를 또 읽는다)
+    if (e.origin && workerIds.size) {
+      const id = [...workerIds].find(x => text.includes(x))
+      if (id) {
+        workerIds.delete(id)
+        return { drop: '🐕 일꾼의 결과는 이미 그 턴의 답으로 붙였어요' }
+      }
+    }
+    await clearHint($)
     if (text.startsWith('/')) return next(e) // 명령은 판단 거리가 아니다
+    pendingWork = null
+    // '@@ 요청' 은 Sonnet 일꾼, '@@h 요청' 은 Haiku 일꾼에게 바로 (손으로 고르기)
+    const manual = /^\s*@@(h?)\s+([\s\S]+)/.exec(text)
+    if (manual) {
+      pendingWork = { task: manual[1] ? 'search' : 'write', model: manual[1] ? 'haiku' : 'sonnet', text: manual[2], manual: true }
+      pending = { text: manual[2], skip: false }
+      return next({ ...e, text: manual[2] })
+    }
+    if (!e.origin) {
+      const task = taskOf(text, lastAnswer)
+      if (task === 'write' || task === 'search') pendingWork = { task, model: task === 'write' ? 'sonnet' : 'haiku', text, manual: false }
+    }
     if (/^[~<]/.test(text)) {
       pending = { text: text.slice(1).trimStart(), skip: true }
       return next({ ...e, text: pending.text })
@@ -388,6 +532,12 @@ export function register(on) {
   // 싼 모델 턴의 도구 오류를 센다 (거듭되면 다음 턴에 원래 모델로)
   on('tool.call', async ($, e, next) => {
     const r = await next(e)
+    if (!e.agentId && liveTurnId) {
+      const list = turnTools.get(liveTurnId) || []
+      list.push({ tool: String(e.tool || ''), isError: !!(r && r.isError) })
+      turnTools.set(liveTurnId, list)
+      if (turnTools.size > 30) turnTools.delete(turnTools.keys().next().value)
+    }
     if (!e.agentId && route && familyOf(route.model) !== familyOf(route.base)) {
       if (r && r.isError) errors++
     } else if (!e.agentId) errors = 0
@@ -395,6 +545,19 @@ export function register(on) {
   }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
+    if (e.agentId && workerWaiters.has(e.agentId)) workerWaiters.get(e.agentId)(e)
+    // 사후 판정: 원래 모델이 처리한 메인 턴이 사실 일꾼으로 충분했는지, 그 턴의 실제 도구 사용과 출력으로 본다
+    if (!e.agentId && e.turnId) {
+      const d = [...decisions].reverse().find(x => x.turnId === e.turnId)
+      if (d && !d.worker && d.usage) {
+        const miss = missedWorkerOf(turnTools.get(e.turnId), d.usage)
+        if (miss) {
+          const wm = miss.task === 'write' ? MODELS.sonnet : MODELS.haiku
+          d.missedWorker = { task: miss.task, why: miss.why, model: wm, est: workerEstimate(wm) }
+        }
+      }
+      turnTools.delete(e.turnId)
+    }
     const r = await next(e)
     await flushLog($)
     return r
@@ -472,6 +635,13 @@ export function register(on) {
       settings.lightSwitch = (rest[0] || '').toLowerCase() === 'on'
       await save()
       return { text: settings.lightSwitch ? '기억 확인 질문도 캐시가 식었으면 Sonnet 으로 내려요' : '기억 확인 질문은 내리지 않고 "켰다면"만 기록해요 (shadow)' }
+    }
+    if (arg === 'worker') {
+      const m = (rest[0] || '').toLowerCase()
+      if (!['on', 'off', 'shadow'].includes(m)) return { text: '/auto-model worker on | shadow | off (지금: ' + settings.worker + ')' }
+      settings.worker = m
+      await save()
+      return { text: { on: '판단이 필요 없는 일은 일꾼(쓰기 Sonnet, 찾기·읽기 Haiku)이 맡아요', shadow: '일꾼 후보만 기록하고 실제로는 원래 모델이 처리해요', off: '일꾼을 껐어요 (@@ 로 손으로 부르는 건 그대로)' }[m] }
     }
     if (arg === 'log') return { text: await logText($) }
     if (arg === 'ttl' || arg === 'min') {

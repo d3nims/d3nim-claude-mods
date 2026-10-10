@@ -185,6 +185,15 @@ claude plugin update usage-meter@d3nim-claude-mods
 - 10/17 이후 로그 검토하기로 함(메모리 auto-model-review). 로그: `/auto-model log`, store `~/.claude/plugins/store/auto-model_*.json`.
 - usage-meter 1.2.3: 카드 모델 줄에 자동 상태(🔄 📌 ✋), 압축 제안 줄, 불러올 때 알림을 한 줄로(알림창은 줄바꿈을 '�' 로 그림).
 
+### auto-model 0.3.0 (일꾼) · usage-meter 1.2.4 (2026-10-10)
+- 일꾼: turn.step index 0 에서 Opus 대신 `$.agent.spawn` 으로 서브에이전트(쓰기 Sonnet, 찾기·읽기 Haiku)를 띄우고 그 turn.complete(agentId)를 기다려 답을 그 턴의 답으로 yield(usage null). 일꾼에겐 최근 메시지 6개(각 1500자)만. 플러그인의 spawn 은 늘 background 라 끝나면 결과가 `<agent-message from="agentId">` 로 prompt.submit(origin peer)에 또 들어오므로 우리 일꾼 id 면 drop(session.receive 로는 안 잡힘).
+- 시제품 실측: 일꾼 뒤 Opus 는 71~74만 토큰을 캐시로 읽고 새로 쓴 건 6~7천. Haiku 일꾼 약 $0.003. 권한 창 정상(플러그인 이름 표시), Esc 로 턴과 일꾼이 같이 취소됨.
+- 분류(route.js taskOf, 로컬 규칙): 승인·판단어·160자 초과 → Opus, 지시어(그거·아까…) → Opus, 기계적 동사 → write, 만드는 동사는 목적지+대상이 있을 때만 write, 산출물 명사(기능·코드·보고서…) → Opus, 찾기 → search. 기본 shadow(기록만), `worker on` 으로 켬. 실패·시간 초과·중단은 그 턴을 Opus 가, "맥락이 부족해요"면 다음 턴 Opus.
+- 사후 판정: 원래 모델이 처리한 턴이 도구 1~3번·단순 쓰기/찾기·출력 1500토큰 이하면 log 에 '놓친 일꾼 후보'. 모든 판단에 요청 앞 80자 저장(로컬).
+- 테스트 한계: 테스트의 바닥 훅은 core 가 아니라 spawn 결과에 agentId 가 없음 → 일꾼 답이 턴의 답이 되는 전체 경로는 시제품 실측으로 확인.
+- usage-meter 1.2.4: 서브에이전트 단계는 카드의 모델·강도를 안 바꿈(작업자 medium 이 새던 문제), 🔄 는 실제로 다른 모델일 때만, 한도 정보 없는 응답 뒤 '5시간 --' 안 됨, 응답 중엔 tok/s 대신 출력 토큰 수.
+- auto-model 압축: `$.session.compact` 는 턴(명령 포함) 중엔 reject → 명령이 끝난 뒤 시작하고 토스트로 결과.
+
 ### 확인 못 한 것 (실기 확인 필요)
 - 실제 Claude Code 화면에서 밴드/`/dog`가 어떻게 보이는지, 15프레임 갱신이 부담 없는지.
 - 파이리(포켓몬) 실험 파일은 저작권 문제로 저장소에 올리기 전에 지웠다. 불꽃·테리 관련만 남김.
