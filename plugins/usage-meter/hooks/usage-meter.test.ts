@@ -299,7 +299,7 @@ test('pressing [압축] shows progress at once, starts within a second, and /ter
   const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 160 } as never })
   await ui.press({ key: 'ah-compact' } as never)
   await ui.redraw()
-  expect(await ui.find({ type: 'Text', text: /📦 압축 중… \(Sonnet 요약/ })).toBeDefined() // at once, before anything is awaited
+  expect(await ui.find({ type: 'Text', text: /^압축 중 \(Sonnet 요약 - +\d+초/ })).toBeDefined() // at once, before anything is awaited
   expect(await ui.find({ type: 'Button', key: 'ah-compact' } as never)).toBeUndefined()
   await tick()
   expect(toasts.join('\n')).toMatch(/📦 압축 시작 · 쉬고 와서 Sonnet 이 요약해요/)
@@ -369,17 +369,17 @@ test("auto-model's in-work compact hint says how full the conversation is", asyn
   await ui.unmount()
 })
 
-test("auto-model's savings show under Terry as a share of my own usage today, dollars until that is known", async ($, on) => {
+test("auto-model's savings show under Terry as this conversation's share, dollars until it has spent $1", async ($, on) => {
   engine(on)
-  let saving: any = { usdToday: 1.2, usdWeek: 3, fivePct: null, weekPct: null, calibrated: false, myPct: null }
+  let saving: any = { usdToday: 5.3, usdWeek: 6, fivePct: null, weekPct: null, calibrated: false, myPct: 65, sessionUsd: 0.4, sessionPct: null }
   on('state.get', (_: unknown, e: any, next: any) => (e.plugin === 'auto-model' && e.key === 'saving' ? { value: { value: saving, version: 1 } } : next(e)))
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'terry', args: '' } as never)
   const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 120 } as never })
-  expect(await ui.find({ type: 'Text', text: /💰 오늘 이 PC 약 \$1\.20 아낌 \(비율 집계 중\)/ })).toBeDefined()
-  saving = { usdToday: 1.2, usdWeek: 3, fivePct: 4.2, weekPct: 0.8, calibrated: true, myPct: 18.4 }
+  expect(await ui.find({ type: 'Text', text: /💰 이 대화 약 \$0\.40 아낌/ })).toBeDefined()
+  saving = { usdToday: 5.3, usdWeek: 6, fivePct: 4.2, weekPct: 0.8, calibrated: true, myPct: 65, sessionUsd: 1.1, sessionPct: 18.4 }
   await ui.redraw()
-  expect(await ui.find({ type: 'Text', text: /💰 오늘 이 PC 합계 약 18% 아낌/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /아낌.*(5시간|주간)/ } as never)).toBeUndefined() // the gauge share stays in /auto-model
+  expect(await ui.find({ type: 'Text', text: /💰 이 대화 약 18% 아낌/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /아낌.*(5시간|주간)|65%/ } as never)).toBeUndefined() // the PC total and gauge share stay in /auto-model
   await ui.unmount()
 })

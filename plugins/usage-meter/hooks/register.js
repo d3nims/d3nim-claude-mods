@@ -554,23 +554,22 @@ async function autoRoute($) {
     return null
   }
 }
-// auto-model 의 절약: 오늘 이 PC 의 모든 세션 합계로 몇 % 아꼈는지 (모르면 달러). 아낀 게 있을 때만 카드 아래 한 줄.
-// 게이지 % 환산은 계정을 같이 쓰면 어림값이라 /auto-model 상세에만 둔다
+// auto-model 의 절약: 이 대화에서 몇 % 아꼈는지 (이 대화 비용이 아직 $1 미만이면 달러). 아낀 게 있을 때만 카드 아래 한 줄.
+// PC 합계와 게이지 % 환산은 /auto-model 상세에 둔다
 const AUTO_SAVING = { plugin: 'auto-model', key: 'saving' }
 async function autoSaving($) {
   try {
     const { value } = await $.state.get(AUTO_SAVING)
-    return value && value.usdToday > 0.005 ? value : null
+    return value && value.sessionUsd > 0.005 ? value : null
   } catch {
     return null
   }
 }
 function savingRow(sv, Text, width) {
   if (!sv) return null
-  const pct = sv.myPct != null ? sv.myPct.toFixed(sv.myPct < 10 ? 1 : 0) + '%' : null
-  // 이 세션이 아니라 이 PC 의 모든 세션 합계라서 범위를 적는다. 쓴 값이 적어 비율이 아직이면 달러로 (집계 중)
-  const text = [pct ? `💰 오늘 이 PC 합계 약 ${pct} 아낌` : `💰 오늘 이 PC 약 $${sv.usdToday.toFixed(2)} 아낌 (비율 집계 중)`, pct ? `💰 오늘 약 ${pct} 아낌` : `💰 약 $${sv.usdToday.toFixed(2)} 아낌`]
-    .find(t => t && visible(t) <= width)
+  const pct = sv.sessionPct != null ? sv.sessionPct.toFixed(sv.sessionPct < 10 ? 1 : 0) + '%' : null
+  const usd = '$' + sv.sessionUsd.toFixed(2)
+  const text = [pct ? `💰 이 대화 약 ${pct} 아낌` : `💰 이 대화 약 ${usd} 아낌`, pct ? `💰 약 ${pct} 아낌` : `💰 약 ${usd} 아낌`].find(t => visible(t) <= width)
   return text ? Text({ key: 'auto-saving', dimColor: true, children: [text] }) : null
 }
 const familyName = id => String(id || '').replace(/^claude-/, '').split('-')[0]
@@ -580,7 +579,10 @@ function hintRow($, hint, Box, Text, Button, width) {
     // 누른 뒤 끝날 때까지: 버튼 대신 진행 줄 (큰 대화의 요약은 몇 분 걸린다)
     const sec = Math.max(0, Math.floor((Date.now() - compacting.since) / 1000))
     const who = compacting.kind === 'cold' ? 'Sonnet 요약' : '원래 모델이 요약'
-    const text = [`📦 압축 중… (${who} · ${sec}초 · 큰 대화는 몇 분 걸려요)`, `📦 압축 중… (${who} · ${sec}초)`, `📦 압축 중… ${sec}초`].find(t => visible(t) <= width)
+    // 이모지와 폭이 애매한 기호(…, ·)는 빼고 폭이 확실한 글자만: 1초마다 다시 그리는 줄이라, 이모지 폭을 터미널과 다르게 세는 화면(Windows)에서
+    // '📦압축9중…' 처럼 앞 글자가 밀리고 지난 숫자가 남았다. 초는 두 자리로 맞춰 줄 길이도 흔들리지 않게
+    const t = String(sec).padStart(2, ' ') + '초'
+    const text = [`압축 중 (${who} - ${t} - 큰 대화는 몇 분 걸려요)`, `압축 중 (${who} - ${t})`, `압축 중 ${t}`].find(t => visible(t) <= width)
     return text ? Text({ key: 'auto-hint', color: '#ffd166', children: [text] }) : null
   }
   if (!hint) return null

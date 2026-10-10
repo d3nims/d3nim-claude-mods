@@ -41,7 +41,7 @@ export type AutoModelMemory = {
   lastAnswer: string
 }
 
-// 카드에 보이는 절약: 보정이 됐으면 게이지 %, 아니면 달러
+// 카드에 보이는 절약: 이 대화에서 아낀 비율 (PC 합계·게이지 환산은 /auto-model 상세)
 export type AutoModelSaving = {
   usdToday: number
   usdWeek: number
@@ -52,6 +52,10 @@ export type AutoModelSaving = {
   calibrated: boolean
   /** 오늘 이 컴퓨터에서 내 사용량 대비 아낀 비율 (%): 순절약 / (실제 쓴 값 + 순절약) */
   myPct: number | null
+  /** 이 대화(세션)에서 아낀 금액 (API 환산) */
+  sessionUsd: number
+  /** 이 대화에서 아낀 비율 (%): 순절약 / (이 대화 실제 비용 + 순절약). 실제 비용이 $1 미만이면 null */
+  sessionPct: number | null
 }
 
 // /auto-model compact 를 usage-meter 에게 부탁: 우리가 시작한 압축은 우리 훅이 못 가로채서, usage-meter 가 이걸 보고 시작한다

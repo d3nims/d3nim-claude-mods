@@ -207,6 +207,9 @@ async function compactNow($, instructions, mode) {
 // 오늘·이번 주 절약 누적 (API 환산 어림값). 일꾼이 실패해 쓴 값은 손해로 빼서 순절약으로 보인다. shadow 는 '가능'으로 따로
 const dayKey = at => new Date(at).toLocaleDateString('sv-SE') // YYYY-MM-DD (컴퓨터 시간대)
 async function addSaving($, kind, amount) {
+  // 이 대화의 순절약 (카드의 '이 대화 약 N% 아낌')
+  if (kind === 'worker' || kind === 'compact') sessionNet += amount
+  else if (kind === 'loss') sessionNet -= amount
   try {
     const now = await $.clock.now()
     const all = (await $.store.get('savings')) || {}
@@ -219,6 +222,11 @@ async function addSaving($, kind, amount) {
     for (const k of Object.keys(all).sort().slice(0, -14)) delete all[k] // 2주치만
     await $.store.set('savings', all)
   } catch {}
+  if (kind !== 'potential') {
+    costSavedAt = 0
+    await flushCost($)
+    await publishSaving($)
+  }
 }
 // 오늘 이 PC 사용량 대비 아낀 비율 (%): 순절약 / (실제 쓴 값 + 순절약). 쓴 값이 $1 도 안 되면(설치 직후 등) 비율이 크게 튀어서
 // 아직 집계 중(null), 아낀 게 없어도 null
@@ -238,9 +246,9 @@ async function savingsText($) {
   const per = await dollarsPerPct($)
   const spent = (t.spent || 0) + pendingSpent
   const share = myShare(spent, t.net)
-  const mine = share != null ? `오늘 이 PC 합계 약 ${Math.round(share)}% 아낌 (이 PC 의 모든 세션이 실제로 ${usd(spent)} 씀) · ` : ''
+  const mine = share != null ? `오늘 약 ${Math.round(share)}% 아낌 (이 PC 의 모든 세션이 실제로 ${usd(spent)} 씀) · ` : ''
   const gauge = per.five_hour && per.seven_day ? `게이지로 5시간 약 ${(Math.max(0, t.net) / per.five_hour).toFixed(1)}% · 주간 약 ${(Math.max(0, wsum) / per.seven_day).toFixed(1)}% · ` : `게이지 보정 중 (표본 5시간 ${per.n5}/5 · 주간 ${per.n7}/5) · `
-  return '💰 ' + mine + gauge + `오늘 약 ${usd(Math.max(0, t.net))} 절약 (일꾼 ${t.workers}번 · 압축 ${t.compactions}번` + (t.losses ? ` · 실패 손해 ${usd(t.losses)} 뺌` : '') + `) · 최근 7일 약 ${usd(wsum)}` +
+  return '이 PC 합계 · ' + mine + gauge + `오늘 약 ${usd(Math.max(0, t.net))} 절약 (일꾼 ${t.workers}번 · 압축 ${t.compactions}번` + (t.losses ? ` · 실패 손해 ${usd(t.losses)} 뺌` : '') + `) · 최근 7일 약 ${usd(wsum)}` +
     (wpot ? ` · 일꾼을 켰다면 약 ${usd(wpot)} 더 절약 가능 (shadow)` : '') + ' (API 환산 어림값. 게이지 % 는 이 컴퓨터 세션들의 비용과 게이지 변화로 어림한 1% 당 금액으로 환산)'
 }
 
@@ -248,7 +256,8 @@ async function savingsText($) {
 // 구독 한도의 % 기준은 공개되지 않아서, 이 컴퓨터의 모든 세션이 쓴 API 환산 비용과 게이지 % 의 변화를 같이 보며 '1% 당 약 $X' 를
 // 창(5시간·주간)마다 따로 어림한다. 세션마다 자기 누적 비용을 store 에 적고(cost:<세션>), 합쳐서 본다. 창이 초기화되면(resetsAt 이
 // 바뀌면) 기준점을 새로 잡아 초기화 직후의 급락을 사용으로 읽지 않는다. 다른 컴퓨터의 세션은 못 보니 1% 당 값이 작게 나올 수 있다.
-let sessionCost = 0 // 이 세션이 쓴 API 환산 비용 누적 (메인 + 서브에이전트 + 일꾼)
+let sessionCost = 0 // 이 세션이 쓴 API 환산 비용 누적 (메인 + 서브에이전트 + 일꾼 + 압축)
+let sessionNet = 0 // 이 세션의 순절약 (일꾼·Sonnet 압축 절약 − 일꾼 실패 손해)
 let pendingSpent = 0 // 아직 오늘 기록(savings[날짜].spent)에 더하지 않은 비용
 let costSavedAt = 0
 const calib = { five_hour: null, seven_day: null } // 기준점 { resetsAt, pct, cost }
@@ -264,7 +273,7 @@ async function flushCost($) {
     const now = await $.clock.now()
     if (now - costSavedAt < 20000) return
     costSavedAt = now
-    await $.store.set('cost:' + sessionId, { cum: sessionCost, at: now })
+    await $.store.set('cost:' + sessionId, { cum: sessionCost, net: sessionNet, at: now })
     if (pendingSpent > 0) {
       // 오늘 이 컴퓨터에서 실제로 쓴 값 (카드의 '내 사용량 대비 %' 의 분모)
       const all = (await $.store.get('savings')) || {}
@@ -276,6 +285,14 @@ async function flushCost($) {
     }
     const idx = (await $.store.get('cost-index')) || []
     if (!idx.includes(sessionId)) await $.store.set('cost-index', [...idx, sessionId].slice(-40))
+  } catch {}
+}
+// /reload-plugins 뒤에도 이 세션의 누적을 이어 간다 (안 그러면 0 부터 다시 세어 store 의 누적을 덮었다)
+async function restoreCost($) {
+  if (!sessionId) return
+  try {
+    const c = await $.store.get('cost:' + sessionId)
+    if (c) (sessionCost = Math.max(sessionCost, c.cum || 0)), (sessionNet = c.net || 0)
   } catch {}
 }
 async function totalCost($) {
@@ -366,8 +383,11 @@ async function publishSaving($) {
     fivePct: per.five_hour ? Math.max(0, today) / per.five_hour : null,
     weekPct: per.seven_day ? Math.max(0, week) / per.seven_day : null,
     calibrated: !!(per.five_hour && per.seven_day),
-    // 오늘 내 사용량 대비 아낀 비율: 순절약 / (실제 쓴 값 + 순절약). 이 컴퓨터 숫자만 쓰니 계정을 같이 써도 정확하다
+    // 오늘 이 PC 합계 대비 아낀 비율 (상세용)
     myPct: myShare(spent, today),
+    // 카드: 이 대화에서 아낀 비율과 금액. 이 대화의 실제 비용이 $1 도 안 되면 비율은 아직(null)
+    sessionUsd: Math.max(0, sessionNet),
+    sessionPct: myShare(sessionCost, sessionNet),
   }
   try {
     await $.state.set(SAVING, value)
@@ -583,6 +603,9 @@ async function runWorker($, work) {
 
 async function statusText($) {
   const lines = []
+  const share = myShare(sessionCost, sessionNet)
+  if (sessionNet > 0.0005 || sessionCost > 0)
+    lines.push(`💰 이 대화: ` + (share != null ? `약 ${Math.round(share)}% 아낌 (약 ${usd(sessionNet)} 절약 · 실제 ${usd(sessionCost)} 씀)` : `약 ${usd(Math.max(0, sessionNet))} 절약 (실제 ${usd(sessionCost)} 씀 · 비율은 $1 넘게 쓴 뒤부터)`))
   const sv = await savingsText($)
   if (sv) lines.push(sv)
   const per = await dollarsPerPct($)
@@ -686,6 +709,7 @@ export function register(on) {
       settings = { ...DEFAULTS, ...((await $.store.get('settings')) || {}) }
     } catch {}
     await restoreMemory($)
+    await restoreCost($)
     await $.command.register({ name: 'auto-model', description: '캐시를 아끼며 모델을 골라요: 쉰 뒤 압축 제안, 가벼운 요청 자동 전환 (on · off · auto · manual · pin · log)' })
     $.clock.every(30000, () => void check($))
     $.clock.every(60000, () => void (async () => {
