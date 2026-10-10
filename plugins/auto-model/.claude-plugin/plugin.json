@@ -1,6 +1,6 @@
 {
   "name": "auto-model",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "프롬프트 캐시를 아끼며 모델을 골라요. 한참 쉬어 캐시가 식은 긴 대화엔 /compact 를 제안하고, 가벼운 요청은 바꾸는 쪽이 확실히 쌀 때만 Sonnet 으로 내리고 검색·탐색 서브에이전트는 Haiku 로 보냅니다. 테리 카드에 표시",
   "author": {
     "name": "d3nim"

@@ -6,7 +6,9 @@ const BAND = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80 
 // Nothing sits beneath the plugin in a test, so the engine's own answers are given here
 let currentModel = 'claude-opus-5-5'
 let currentEffort = 'high'
+let toasts: string[] = [] // what the card toasted, in this test
 function engine(on: any, five = 38, week = 71) {
+  toasts = []
   currentModel = 'claude-opus-5-5'
   currentEffort = 'high'
   mock.store(on)
@@ -16,7 +18,7 @@ function engine(on: any, five = 38, week = 71) {
   on('command.register', () => ({ value: {} }))
   on('session.model', () => ({ value: currentModel }))
   on('settings.read', () => ({ value: { effortLevel: currentEffort } }))
-  on('ui.toast', () => ({ value: {} }))
+  on('ui.toast', (_: unknown, e: any) => (toasts.push(typeof e === 'string' ? e : e.text ?? JSON.stringify(e)), { value: {} }))
   on('ui.blit', () => ({ value: {} }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.usage', () => ({
@@ -257,7 +259,7 @@ test('/terry pane opens Terry in a pane of his own, with what he is doing and th
 })
 
 test("auto-model's compact hint shows under Terry, with its two buttons", async ($, on) => {
-  engine(on)
+  const clock = engine(on)
   const hint = { id: 1, idleMinutes: 72, tokens: 460000, rewriteUsd: 3.68, model: 'claude-opus-5-5' }
   on('state.get', (_: unknown, e: any, next: any) => (e.plugin === 'auto-model' && e.key === 'hint' ? { value: { value: hint, version: 1 } } : next(e)))
   const ran: string[] = []
@@ -269,9 +271,58 @@ test("auto-model's compact hint shows under Terry, with its two buttons", async 
   const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 160 } as never })
   expect(await ui.find({ type: 'Text', text: /1시간 12분 쉬어서 캐시가 식었어요.*46만 토큰.*\$3\.7/ })).toBeDefined()
   await ui.press({ key: 'ah-compact' } as never)
+  expect(compactions).toBe(0) // the press only asks: no awaiting another plugin inside the click (it hung on Windows)
+  await clock.advance(1000)
+  await new Promise(r => setTimeout(r, 20))
+  expect(compactions).toBe(1) // started by the card's own timer
   await ui.press({ key: 'ah-skip' } as never)
-  expect(ran).toEqual(['compact-prep', 'dismiss']) // the card tells auto-model, then starts the compaction itself
+  await clock.advance(1000)
+  await new Promise(r => setTimeout(r, 20))
+  expect(ran).toEqual(['dismiss'])
+  await ui.unmount()
+})
+
+test('pressing [압축] shows progress at once, starts within a second, and /terry compact or /auto-model compact take the same path', async ($, on) => {
+  const clock = engine(on)
+  let hint: any = { kind: 'cold', id: 1, idleMinutes: 72, tokens: 650000, rewriteUsd: 5.2, model: 'claude-opus-5-5' }
+  let ask: any = null
+  on('state.get', (_: unknown, e: any, next: any) =>
+    e.plugin === 'auto-model' && e.key === 'hint' ? { value: { value: hint, version: 1 } } : e.plugin === 'auto-model' && e.key === 'ask' ? { value: { value: ask, version: 1 } } : next(e))
+  const ran: string[] = []
+  on('command.run', (_: unknown, e: any, next: any) => (e.command === 'auto-model' ? (ran.push(e.args), { text: 'ok' }) : next(e)))
+  let finish: () => void = () => {}
+  let compactions = 0
+  on('session.compact', () => (compactions++, new Promise(res => (finish = () => res({ messages: [{ role: 'user', text: '요약', toolUses: [] }], tokensBefore: 650000, tokensAfter: 30000 })))))
+  const tick = async () => (await clock.advance(1000), await new Promise(r => setTimeout(r, 20)))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 160 } as never })
+  await ui.press({ key: 'ah-compact' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /📦 압축 중… \(Sonnet 요약/ })).toBeDefined() // at once, before anything is awaited
+  expect(await ui.find({ type: 'Button', key: 'ah-compact' } as never)).toBeUndefined()
+  await tick()
+  expect(toasts.join('\n')).toMatch(/📦 압축 시작 · 쉬고 와서 Sonnet 이 요약해요/)
   expect(compactions).toBe(1)
+  const again: any = await $.command.run({ command: 'terry', args: 'compact' } as never)
+  expect(again.text).toMatch(/이미 압축 중/)
+  finish()
+  await new Promise(r => setTimeout(r, 20))
+  expect(toasts.at(-1)).toMatch(/압축했어요 \(65만 토큰 → 3만 토큰\)/)
+  // the keyboard ways: /terry compact, and /auto-model compact's ask
+  const r: any = await $.command.run({ command: 'terry', args: 'compact' } as never)
+  expect(r.text).toMatch(/압축을 시작해요/)
+  await tick()
+  expect(compactions).toBe(2)
+  finish()
+  await new Promise(r => setTimeout(r, 20))
+  ask = { id: Date.now(), at: Date.now() }
+  await tick()
+  expect(compactions).toBe(3)
+  finish()
+  await tick()
+  expect(compactions).toBe(3) // an ask is taken once
+  expect(ran).toEqual([]) // no command was awaited on the way
   await ui.unmount()
 })
 

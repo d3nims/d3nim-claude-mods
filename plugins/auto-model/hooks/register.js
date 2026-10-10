@@ -37,6 +37,8 @@ const HINT = { plugin: 'auto-model', key: 'hint' }
 const ROUTE = { plugin: 'auto-model', key: 'route' }
 const MEMORY = { plugin: 'auto-model', key: 'memory' }
 const SAVING = { plugin: 'auto-model', key: 'saving' }
+const ASK = { plugin: 'auto-model', key: 'ask' }
+let askHandled = true // 부탁한 압축이 시작됐는지 (안 되면 3초 뒤 직접)
 
 const DEFAULTS = { enabled: true, ttlMinutes: 60, minTokens: 150000, route: 'auto', pin: null, mainHaiku: false, lightSwitch: false, worker: 'shadow', warnPct: 85 }
 let settings = { ...DEFAULTS }
@@ -879,17 +881,24 @@ export function register(on) {
   // 압축: 우리 [압축] 버튼(trigger plugin)일 때만 손을 댄다. 쉬고 와서 캐시가 식었으면 Sonnet 이 요약하고, 작업 중이면 원래 모델이
   // 요약하되 사용자 메시지 원문을 붙인다. 사람이 친 /compact(manual)와 자동 압축(auto)은 그대로. 실패하면 원래대로 (fail open)
   on('session.compact', async ($, e, next) => {
-    const mode = !e.agentId && e.trigger === 'plugin' && compactMode && (await $.clock.now()) < compactModeUntil ? compactMode : null
-    if (mode) compactMode = null
+    // 다른 플러그인(usage-meter 의 [압축] · /terry compact)이 시작한 압축: 종류는 미리 들은 게 있으면 그것, 없으면 지금 상태로 판단
+    // (클릭 핸들러에서 명령을 부르면 Windows 에서 매달려서, 미리 알리지 않아도 되게 했다)
+    const now0 = await $.clock.now()
+    const prepped = compactMode && now0 < compactModeUntil ? compactMode : null
+    const mode = !e.agentId && e.trigger === 'plugin' ? prepped || shownKind || (last && now0 - last.at >= settings.ttlMinutes * 60000 ? 'cold' : 'warm') : null
+    if (mode) (compactMode = null), (askHandled = true)
     let r = null
     let model = null
     if (mode === 'cold' && last && (await $.clock.now()) - last.at >= settings.ttlMinutes * 60000) {
+      let why = 'Sonnet 답이 비었어요'
       try {
         r = await sonnetCompact($, e)
         if (r) model = MODELS.sonnet
-      } catch {
+      } catch (err) {
         r = null
+        why = String((err && err.message) || err).slice(0, 80)
       }
+      if (!r) $.ui.toast(`📦 Sonnet 요약 실패 (${why}) → 원래 모델이 압축해요`)
     }
     if (!r) {
       r = await next(e)
@@ -976,7 +985,24 @@ export function register(on) {
       await check($)
       return { text: arg === 'ttl' ? `캐시 식는 시간을 ${n}분으로 했어요` : `${tokensText(n * 1000)} 이상인 대화에만 제안해요` }
     }
-    if (arg === 'compact') return { text: await compactNow($, rest.join(' ')) }
+    if (arg === 'compact') {
+      // 직접 친 압축도 카드의 [압축] 과 같은 길로: 우리가 시작한 압축은 우리 훅이 못 가로채서(쉬고 온 뒤 Sonnet 요약이 안 됨)
+      // usage-meter 가 있으면 그쪽이 시작한다. 지시를 붙였거나 usage-meter 가 없으면 원래 모델이
+      // (명령 훅 안에서 다른 명령을 부르면 host 가 거절하고, 버튼에선 매달리기도 해서 명령 대신 상태로 부탁한다)
+      if (!rest.length) {
+        askHandled = false
+        const now = await $.clock.now()
+        try {
+          await $.state.set(ASK, { id: now, at: now })
+        } catch {}
+        void (async () => {
+          await $.clock.sleep(3000)
+          if (!askHandled) await compactNow($, '') // usage-meter 가 없으면 원래 모델이
+        })()
+        return { text: '압축을 시작할게요 (쉬고 온 뒤면 Sonnet 이 요약, 끝나면 알려 드려요)' }
+      }
+      return { text: await compactNow($, rest.join(' ')) }
+    }
     // 카드의 [압축] 버튼: 이어서 usage-meter 가 압축을 시작한다. 그 압축이 쉬고 온 뒤인지(Sonnet) 작업 중인지 적어 둔다
     if (arg === 'compact-prep') {
       compactMode = rest[0] === 'cold' || rest[0] === 'warm' ? rest[0] : shownKind || 'warm'

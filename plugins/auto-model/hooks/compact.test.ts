@@ -9,7 +9,7 @@ const OPUS = 'claude-opus-5-5'
 function engine(on: any) {
   mock.store(on)
   const clock = mock.clock(on)
-  const world: any = { percent: 40, coreCompactions: 0, completions: [] as any[], hint: null, compacted: null }
+  const world: any = { percent: 40, coreCompactions: 0, completions: [] as any[], hint: null, compacted: null, asks: [] as any[] }
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: {} }))
   on('ui.toast', () => ({ value: {} }))
@@ -17,6 +17,7 @@ function engine(on: any) {
   on('session.usage', () => ({ value: { startedAt: 0, context: { percent: world.percent, window: 1000000, tokens: world.percent * 10000 }, rateLimits: [] } }))
   on('state.set', (_: unknown, e: any, next: any) => {
     if (e.plugin === 'auto-model' && e.key === 'hint') world.hint = e.value
+    if (e.plugin === 'auto-model' && e.key === 'ask') world.asks.push(e.value)
     return next(e)
   })
   on('turn.step', async function* (_: unknown, e: any) {
@@ -120,4 +121,25 @@ test('a /compact typed by hand or the automatic one is left to the main model as
   expect(r.messages[0].text).toBe('Opus 요약')
   expect(r.messages.length).toBe(1)
   expect(world.completions.length).toBe(0)
+})
+
+test('/auto-model compact typed by hand asks usage-meter (so a cold one can still go to Sonnet); with nobody to take it, the main model compacts', async ($, on) => {
+  const { clock, world } = engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await step($, 1)
+  await clock.advance(61 * MIN)
+  const r: any = await $.command.run({ command: 'auto-model', args: 'compact' } as never)
+  expect(r.text).toMatch(/압축을 시작할게요/)
+  expect(world.asks.length).toBe(1)
+  // usage-meter takes it: a compaction from another plugin, with no word beforehand, is judged cold here
+  const c: any = await $.session.compact({ trigger: 'plugin', messages: MESSAGES } as never)
+  expect(world.completions.at(-1)?.model).toBe('sonnet')
+  expect(c.messages[0].text).toMatch(/3\. push 는 하지 마/)
+  await clock.advance(3500)
+  expect(world.coreCompactions).toBe(0) // taken, so no fallback
+  // nobody takes it
+  await $.command.run({ command: 'auto-model', args: 'compact' } as never)
+  await clock.advance(3500)
+  await clock.advance(400)
+  expect(world.coreCompactions).toBe(1)
 })

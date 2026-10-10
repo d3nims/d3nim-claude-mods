@@ -54,8 +54,11 @@ export type AutoModelSaving = {
   myPct: number | null
 }
 
+// /auto-model compact 를 usage-meter 에게 부탁: 우리가 시작한 압축은 우리 훅이 못 가로채서, usage-meter 가 이걸 보고 시작한다
+export type AutoModelAsk = { id: number; at: number }
+
 declare module 'claude-code' {
   interface PluginState {
-    'auto-model': { hint: AutoModelHint | null; route: AutoModelRoute | null; memory: AutoModelMemory | null; saving: AutoModelSaving | null }
+    'auto-model': { hint: AutoModelHint | null; route: AutoModelRoute | null; memory: AutoModelMemory | null; saving: AutoModelSaving | null; ask: AutoModelAsk | null }
   }
 }

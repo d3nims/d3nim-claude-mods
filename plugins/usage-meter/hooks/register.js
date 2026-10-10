@@ -85,6 +85,9 @@ const dateKey = () => {
 let installedOn = null // 테리를 처음 만난 날: 해마다 그날엔 케이크
 // 쓰다듬기
 let petUntil = 0
+let compacting = null // 카드에서 시작한 압축이 도는 중: { since, kind, started } (끝나면 null)
+let cardAsk = null // 카드 버튼이 부탁한 일: 'compact' | 'dismiss' (1초 타이머가 처리)
+let askSeen = 0 // auto-model 이 /auto-model compact 로 부탁한 마지막 id
 // 5시간 한도를 다 쓰면 문 앞에서 기다리다가, 풀리는 순간 짖는다
 let limitWaitUntil = 0
 let limitNotified = 0
@@ -298,6 +301,7 @@ const guide = () =>
     '/terry catch    : 상황별 동작 미리보기 (catch 테스트 통과 · droop 테스트 실패 · door 한도 대기 · stretch 하루 첫 입력 · eat 저녁)',
     '/terry stats    : 오늘의 기록 (요청 수 · 토큰 · 가장 오래 걸린 요청 · 테리가 달린 거리 · 쓰다듬은 횟수)',
     '/terry pet      : 쓰다듬기 (카드의 🐾 를 눌러도 돼요)',
+    '/terry compact  : 카드의 [압축] 과 같음 (마우스가 안 될 때, auto-model 과 같이 쓸 때)',
   ].join('\n')
 
 const LABELS = { five_hour: '5시간', seven_day: '주간', spend_limit: '지출' }
@@ -571,6 +575,13 @@ function savingRow(sv, Text, width) {
 const familyName = id => String(id || '').replace(/^claude-/, '').split('-')[0]
 const manTokens = n => (n >= 10000 ? Math.round(n / 10000) + '만' : Math.round(n / 1000) + '천')
 function hintRow($, hint, Box, Text, Button, width) {
+  if (compacting) {
+    // 누른 뒤 끝날 때까지: 버튼 대신 진행 줄 (큰 대화의 요약은 몇 분 걸린다)
+    const sec = Math.max(0, Math.floor((Date.now() - compacting.since) / 1000))
+    const who = compacting.kind === 'cold' ? 'Sonnet 요약' : '원래 모델이 요약'
+    const text = [`📦 압축 중… (${who} · ${sec}초 · 큰 대화는 몇 분 걸려요)`, `📦 압축 중… (${who} · ${sec}초)`, `📦 압축 중… ${sec}초`].find(t => visible(t) <= width)
+    return text ? Text({ key: 'auto-hint', color: '#ffd166', children: [text] }) : null
+  }
   if (!hint) return null
   let long, mid, short, later
   if (hint.kind === 'warm') {
@@ -596,18 +607,58 @@ function hintRow($, hint, Box, Text, Button, width) {
       Text({ key: 'ah-t', color: '#ffd166', children: [text] }),
       ...(Button
         ? [
-            Button({ key: 'ah-compact', label: '압축', onPress: () => void compactFromCard($) }),
+            Button({ key: 'ah-compact', label: '압축', onPress: () => pressCompact($, hint.kind === 'warm' ? 'warm' : 'cold') }),
             Text({ key: 'ah-sp', children: [' '] }),
-            Button({ key: 'ah-skip', label: later, dimColor: true, onPress: () => void $command($, 'dismiss') }),
+            Button({ key: 'ah-skip', label: later, dimColor: true, onPress: () => void (cardAsk = 'dismiss') }),
           ]
         : []),
     ],
   })
 }
-// [압축]: auto-model 에 이 압축이 어떤 건지(쉬고 옴/작업 중) 알리고 여기서 압축을 시작한다. auto-model 은 자기가 시작한 압축은
-// 가로챌 수 없어서(자기 훅이 안 돈다), 쉬고 온 뒤 Sonnet 요약은 이 경로로만 된다
+// [압축]: 누르면 바로 '압축 중' 줄로 바꾸고 돌아온다. 실제 시작은 1초 타이머가 한다: 클릭 핸들러 안에서 다른 플러그인의 명령을
+// 기다리면 Windows(2.1.296)에서 응답 없이 매달려 카드가 멈췄다. auto-model 은 자기가 시작한 압축은 가로챌 수 없어서(자기 훅이
+// 안 돈다) 여기서 시작하고, auto-model 이 그 압축을 보고 종류(쉬고 옴 → Sonnet 요약 / 작업 중)를 스스로 판단한다
+function pressCompact($, kind) {
+  if (compacting) return
+  compacting = { since: Date.now(), kind, started: false }
+  cardAsk = 'compact'
+  $.ui.invalidate('ui.render')
+}
+// 1초마다: 버튼이나 /auto-model compact 가 부탁한 일을 처리한다 (기다리지 않고 떼어 낸다)
+async function runAsks($) {
+  if (cardAsk === 'dismiss') {
+    cardAsk = null
+    void withTimeout($, $command($, 'dismiss'), 5000)
+  }
+  if (!compacting || !compacting.started) {
+    try {
+      const { value } = await $.state.get(AUTO_ASK)
+      if (value && value.id > askSeen) {
+        askSeen = value.id
+        if (Date.now() - value.at < 60000 && !compacting) {
+          const hint = await autoHint($)
+          compacting = { since: Date.now(), kind: hint && hint.kind === 'warm' ? 'warm' : 'cold', started: false }
+          cardAsk = 'compact'
+        }
+      }
+    } catch {}
+  }
+  if (cardAsk === 'compact' && compacting && !compacting.started) {
+    cardAsk = null
+    compacting.started = true
+    void compactFromCard($)
+  }
+  // 오래 매달린 압축은 표시만이라도 풀어 준다 (압축 자체의 제한은 15분)
+  if (compacting && Date.now() - compacting.since > 20 * 60000) {
+    compacting = null
+    $.ui.toast('📦 압축이 20분 넘게 끝나지 않아요 · /compact 를 직접 입력해 주세요')
+    $.ui.invalidate('ui.render')
+  }
+}
+const withTimeout = ($, p, ms) => Promise.race([p, $.clock.sleep(ms).then(() => ({ timedOut: true }))])
 async function compactFromCard($) {
-  await $command($, 'compact-prep')
+  const mine = compacting
+  $.ui.toast(mine && mine.kind === 'cold' ? '📦 압축 시작 · 쉬고 와서 Sonnet 이 요약해요 (큰 대화는 몇 분 걸려요)' : '📦 압축 시작 · 원래 모델이 요약해요 (1~2분)')
   try {
     const r = await $.session.compact()
     if (r && r.skip) return void $.ui.toast('압축하지 않았어요: ' + r.skip)
@@ -615,8 +666,12 @@ async function compactFromCard($) {
     $.ui.toast('압축했어요' + (r && r.tokensBefore && r.tokensAfter ? ` (${fmt(r.tokensBefore)} → ${fmt(r.tokensAfter)})` : ''))
   } catch (err) {
     $.ui.toast('압축을 못 했어요 (' + String((err && err.message) || err).slice(0, 100) + ') · /compact 를 직접 입력해 주세요')
+  } finally {
+    if (compacting === mine) compacting = null
+    $.ui.invalidate('ui.render')
   }
 }
+const AUTO_ASK = { plugin: 'auto-model', key: 'ask' }
 const $command = ($, args) => $.command.run({ command: 'auto-model', args }).catch(() => {})
 
 export function register(on) {
@@ -638,6 +693,7 @@ export function register(on) {
     await refresh($)
     $.clock.every(30000, () => refresh($))
     $.clock.every(1000, () => {
+      void runAsks($)
       // 한도가 풀리는 순간: 문 앞에서 벌떡 일어나 짖고 알린다
       if (limitWaitUntil && Date.now() >= limitWaitUntil) {
         limitNotified = limitWaitUntil
@@ -798,6 +854,13 @@ export function register(on) {
     on('command.run', { command: name }, async ($, e) => {
       const arg = e.args.trim().toLowerCase()
       if (arg === 'help' || arg === '?') return { text: guide() }
+      if (arg === 'compact' || arg === '압축') {
+        // 카드의 [압축] 과 같은 길 (마우스가 안 될 때). 압축은 명령 중엔 시작할 수 없어서 명령이 끝난 뒤 시작한다
+        if (compacting) return { text: '이미 압축 중이에요' }
+        const hint = await autoHint($)
+        pressCompact($, hint && hint.kind === 'warm' ? 'warm' : 'cold') // 명령이 끝난 뒤 1초 안에 시작
+        return { text: '압축을 시작해요 (카드의 [압축] 과 같아요: 쉬고 온 뒤면 Sonnet 이 요약)' }
+      }
       if (name === 'terry' && (arg === 'stats' || arg === '기록' || arg === '오늘')) return { text: await statsText($) }
       if (name === 'terry' && (arg === 'pane' || arg === '창' || arg === 'window')) {
         const opened = await openPane($)

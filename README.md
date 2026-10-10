@@ -116,6 +116,7 @@ node docs/preview/terry-view.mjs   # ←→ 동작, e 강도, m 그림 방식, w
 | `/auto-model off` · `on` | 전부 끄고 켜기 |
 | `/auto-model pin opus` · `unpin` | 모델 고정 / 풀기 |
 | `/auto-model worker on` · `shadow` · `off` | 일꾼 (기본 shadow: 기록만) |
+| `/auto-model compact` · `/terry compact` | 카드의 `[압축]` 과 같음 (마우스 클릭이 안 될 때; 쉬고 온 뒤면 Sonnet 요약) |
 | `/auto-model log` | 최근 판단 기록 (요청 앞부분, 이유, 대화 크기, 캐시, 사용량, shadow 손익, 놓친 일꾼 후보) |
 | `/auto-model preview` | 압축 제안 미리 보기 1분 |
 | `/auto-model warn 85` · `off` | 작업 중 압축 알림 기준(%) |
