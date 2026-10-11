@@ -53,7 +53,7 @@ let lastContextTier = 0
 // 움직이는 그림을 다시 그리는 타이머
 const anims = new Map() // 그림(Raster key)마다 따로 도는 애니메이션: 프롬프트 위의 테리와 옆 창의 테리가 함께 움직인다
 let denies = 0
-const PANE = 'terry' // 테리를 따로 크게 보는 옆 창 (/terry pane, 🐕 버튼)
+const PANE = 'terry' // 테리를 따로 크게 보는 옆 창 (/terry pane)
 
 // 테리의 기분: 지금 무슨 일이 일어나는지에 따라 바뀐다
 const SLEEP_AFTER = 3 * 60 * 1000 // 이만큼 조용하면 존다
@@ -293,14 +293,14 @@ const guide = () =>
     '/flame1 braille : 파란 불꽃 밴드, 점자로 그림 (더 곱지만 알알이 보일 수 있음)',
     '/terry braille  : 달리는 강아지, 점자로 그림 (기본, 점 하나하나 다듬은 그림)',
     '/terry quad     : 달리는 강아지, 꽉 찬 블록으로 그림 (블록용으로 그렸던 1.0.2 그림)',
-    '/terry pane     : 테리를 옆 창에 따로 띄우기 (카드의 🐕 를 눌러도 됨)',
+    '/terry pane     : 테리를 옆 창에 따로 띄우기',
     '/terry fine     : 달리는 강아지, 촘촘한 블록으로 그림 (등선·배·머리 윤곽이 더 매끈)',
     '/terry run      : 20초 동안 달리는 모습 미리보기 (sit · wag · bark · happy · sleep 도 됨, stop 으로 끝내기)',
     '/terry run max  : 추론 강도별 달리기 미리보기 (low 걷기 · medium 빨리 걷기 · high 달리기 · xhigh 전력 질주 · max 날기)',
     '/terry sniff    : 도구별 동작 미리보기 (sniff 읽기 · dig 실행·고치기 · fetch 웹 · ask 허락 대기 · sad 실패)',
     '/terry catch    : 상황별 동작 미리보기 (catch 테스트 통과 · droop 테스트 실패 · door 한도 대기 · stretch 하루 첫 입력 · eat 저녁)',
     '/terry stats    : 오늘의 기록 (요청 수 · 토큰 · 가장 오래 걸린 요청 · 테리가 달린 거리 · 쓰다듬은 횟수)',
-    '/terry pet      : 쓰다듬기 (카드의 🐾 를 눌러도 돼요)',
+    '/terry pet      : 쓰다듬기',
     '/terry compact  : 카드의 [압축] 과 같음 (마우스가 안 될 때, auto-model 과 같이 쓸 때)',
   ].join('\n')
 
@@ -872,7 +872,7 @@ export function register(on) {
       if (name === 'terry' && (arg === 'pet' || arg === '쓰다듬기' || arg === '쓰담')) {
         style = 'terry'
         await addPet($, 8000)
-        return { text: '테리가 좋아해요! 🐾 (카드의 🐾 를 눌러도 쓰다듬을 수 있어요)' }
+        return { text: '테리가 좋아해요! 🐾' }
       }
       if (arg === 'debug') {
         let env = '(읽기 실패)'
@@ -1026,15 +1026,7 @@ export function register(on) {
         ...(mini ? {} : { borderStyle: 'round', borderColor: CARD_BORDER }),
         paddingX: tight ? 0 : 1,
         children: [
-          Box({
-            key: 'tc-moodrow',
-            flexDirection: 'row',
-            children: [
-              Text({ key: 'tc-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' || m === 'catch' || m === 'pet' ? '#9be08a' : m === 'bark' ? '#ffd166' : undefined, children: [moodText] }),
-              ...(Button && !nano ? [Text({ key: 'tc-sp', children: [' '] }), Button({ key: 'terry-pet', label: '🐾', plain: true, dimColor: true, onPress: () => void addPet($) }),
-                Text({ key: 'tc-sp2', children: [' '] }), Button({ key: 'terry-pane', label: '🐕', plain: true, dimColor: true, onPress: () => void openPane($) })] : []),
-            ],
-          }),
+          Text({ key: 'tc-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' || m === 'catch' || m === 'pet' ? '#9be08a' : m === 'bark' ? '#ffd166' : undefined, children: [moodText] }),
           Box({
             key: 'tc-model',
             flexDirection: 'row',

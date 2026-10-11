@@ -226,6 +226,9 @@ claude plugin update usage-meter@d3nim-claude-mods
 - 0.2.1 부터 `/^[~<]/` 를 건너뛰기로 봐서, 다른 세션 메시지(`<cross-session-message …>`)나 붙여넣은 HTML 의 맨 앞 '<' 를 지우고 판단도 건너뜀(log 에 "~ 로 건너뜀"). 이제 사람이 친 '~' 만.
 - 이름·설명: "요청마다 맞는 모델이 처리해요. 메인(Opus)은 그대로 두고 단순한 일은 Sonnet·Haiku 일꾼에게…" 로 plugin.json·marketplace·README·노션(제목 "auto-model: Claude 오토 모델 플러그인") 통일.
 
+### usage-meter 1.2.10 (2026-10-11): 카드 윗줄 버튼 뺌
+- 카드 맨 윗줄의 🐾(쓰다듬기)·🐕(옆 창) 버튼을 뺌: 터미널에서 이모지 버튼이 겹쳐 보이고 쓸 일이 적음. `/terry pet`·`/terry pane` 은 그대로.
+
 ### 확인 못 한 것 (실기 확인 필요)
 - 실제 Claude Code 화면에서 밴드/`/dog`가 어떻게 보이는지, 15프레임 갱신이 부담 없는지.
 - 파이리(포켓몬) 실험 파일은 저작권 문제로 저장소에 올리기 전에 지웠다. 불꽃·테리 관련만 남김.

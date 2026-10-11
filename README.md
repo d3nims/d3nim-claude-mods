@@ -54,7 +54,7 @@ claude plugin install usage-meter@d3nim-claude-mods
 - 테스트가 통과하면 뛰어올라 원반을 물고, 실패하면 고개를 떨구고 꼬리를 말아요.
 - 5시간 한도를 다 쓰면 문 앞에서 기다리다가, 풀리는 순간 짖으며 알려 줘요.
 - 하루 첫 입력엔 기지개를 켜며 하품하고, 저녁 6시~7시 반엔 가끔 밥을 먹어요.
-- 카드의 🐾 를 누르거나 `/terry pet` 하면 좋아해요. 쓰다듬은 횟수는 `/terry stats` 에 남아요.
+- `/terry pet` 하면 좋아해요. 쓰다듬은 횟수는 `/terry stats` 에 남아요.
 - 설날·추석엔 복주머니와 송편이, 설치한 지 1년 되는 날엔 케이크가 놓여요.
 - `/terry catch` · `droop` · `door` · `stretch` · `eat` 로 미리 볼 수 있어요.
 
@@ -71,8 +71,8 @@ claude plugin install usage-meter@d3nim-claude-mods
 | `/terry run max` | 추론 강도별 달리기 미리보기 (`low` `medium` `high` `xhigh` `max`, `middle` · `중간` 도 됨) |
 | `/terry dig` | 도구별 동작 미리보기 (`sniff` `dig` `fetch` `ask` `sad`) |
 | `/terry catch` | 상황별 동작 미리보기 (`catch` 테스트 통과, `droop` 테스트 실패, `door` 한도 대기, `stretch` 하루 첫 입력, `eat` 저녁) |
-| `/terry pet` | 테리 쓰다듬기 (카드의 🐾 를 눌러도 됨) |
-| `/terry pane` | 테리를 옆 창에 따로 크게 띄우기 (카드의 🐕 를 눌러도 됨) |
+| `/terry pet` | 테리 쓰다듬기 |
+| `/terry pane` | 테리를 옆 창에 따로 크게 띄우기 |
 | `/terry stats` | 오늘의 기록: 요청 수, 토큰, 가장 오래 걸린 요청, 테리가 달린 거리, 쓰다듬은 횟수 |
 | `/terry braille` · `/terry quad` | 그림 방식 바꾸기 (`/flame1` 도 같음). 테리는 점자(`braille`)가 기본이고 점 하나하나 다듬은 그림이에요. `quad` 는 블록용으로 그렸던 예전(1.0.2) 그림으로 보여요 |
 | `/terry help` | 사용법 |
