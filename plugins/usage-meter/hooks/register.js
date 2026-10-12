@@ -575,6 +575,31 @@ function savingRow(sv, Text, width) {
   const text = [pct ? `이 대화 약 ${pct} 아낌` : `이 대화 약 ${usd} 아낌`, pct ? `약 ${pct} 아낌` : `약 ${usd} 아낌`].find(t => visible(t) <= width)
   return text ? Text({ key: 'auto-saving', color: '#9be08a', bold: true, children: [text] }) : null
 }
+// 옆자리도 없을 만큼 좁을 때 테리 밑 한 줄: '5h ━── 42%  주간 ━── 30%  대화 ━── 12%' (38칸). 그보다 좁으면 막대를 빼고,
+// 그래도 넘치면 이름을 더 줄인다 (5h · 주 · 대)
+const LINE_BAR = 3
+function usageLine(Box, Text, vals, width) {
+  const pcts = BAND_NAMES.map((_, i) => show(vals[i]))
+  const fit = (names, bar) => names.reduce((a, n, i) => a + visible(n) + 1 + (bar ? bar + 1 : 0) + visible(pcts[i]), 0) + 2 * (names.length - 1)
+  const short = ['5h', '주간', '대화']
+  const bar = fit(short, LINE_BAR) <= width ? LINE_BAR : 0
+  const names = bar || fit(short, 0) <= width ? short : ['5h', '주', '대']
+  return Box({
+    key: 'terry-usage-line',
+    flexDirection: 'row',
+    children: names.flatMap((nm, i) => {
+      const v = vals[i] ?? 0
+      const filled = v <= 0 || !bar ? 0 : Math.max(1, Math.round((Math.min(100, v) / 100) * bar))
+      return [
+        Text({ key: 'ul-n' + i, dimColor: true, children: [(i ? '  ' : '') + nm + ' '] }),
+        ...(bar
+          ? [Text({ key: 'ul-f' + i, color: stateColor(v), children: ['━'.repeat(filled)] }), Text({ key: 'ul-e' + i, dimColor: true, children: ['─'.repeat(bar - filled) + ' '] })]
+          : []),
+        Text({ key: 'ul-v' + i, color: stateColor(v), bold: true, children: [pcts[i]] }),
+      ]
+    }),
+  })
+}
 const familyName = id => String(id || '').replace(/^claude-/, '').split('-')[0]
 const manTokens = n => (n >= 10000 ? Math.round(n / 10000) + '만' : Math.round(n / 1000) + '천')
 function hintRow($, hint, Box, Text, Button, width) {
@@ -988,8 +1013,8 @@ export function register(on) {
       const m = mood()
       drawnMood = m
       // 폭 나누기: 넓으면 테리(하늘 포함) 옆에 카드·표. 좁아지면 하늘부터 줄여서라도 옆에 둔다.
-      // 창을 여러 개 나눠 띄우는 사람도 있어서, 옆자리가 10칸만 있어도 간추려 옆에 둔다. 그보다 좁으면 테리만 두고
-      // 소식은 Claude 의 스피너에 붙인다.
+      // 창을 여러 개 나눠 띄우는 사람도 있어서, 옆자리가 10칸만 있어도 간추려 옆에 둔다. 그보다 좁으면 테리 밑에 사용량
+      // 한 줄만 두고 소식은 Claude 의 스피너에 붙인다.
       const SIDE_FULL = 26
       const SIDE_MIN = 12
       let terryCols = TERRY_COLS
@@ -1080,7 +1105,7 @@ export function register(on) {
       const extras = [hint, saving].filter(Boolean)
       const withHint = top => (extras.length ? Box({ key: 'terry-with-hint', flexDirection: 'column', children: [top, ...extras] }) : top)
       // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
-      if (!beside) return withHint(Box({ key: 'terry-alone', flexDirection: 'column', children: [dog] }))
+      if (!beside) return withHint(Box({ key: 'terry-alone', flexDirection: 'column', children: [dog, usageLine(Box, Text, vals, cols)] }))
       if (beside) {
         const side = Box({ key: 'terry-side', flexDirection: 'column', height: TERRY_ROWS, justifyContent: 'space-between', children: [card, usageTable] })
         return withHint(Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: gap, children: [side] })] }))

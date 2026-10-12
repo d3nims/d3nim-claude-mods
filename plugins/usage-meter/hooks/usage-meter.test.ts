@@ -233,6 +233,11 @@ test('very narrow: name and percent beside Terry; narrower still, Terry alone', 
   expect(await ui.find({ type: 'Text', text: /^5시간/ })).toBeDefined()
   await ui.redraw({ ...(BAND as object), bodyColumns: 38 } as never)
   expect(await ui.find({ key: 'terry-alone' })).toBeDefined()
+  // alone, the three gauges go on one short line under Terry
+  expect(await ui.find({ key: 'terry-usage-line' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^5h $/ } as never)).toBeDefined() // names shortened to keep a bar
+  expect(await ui.find({ type: 'Text', text: /^  주간 $/ } as never)).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^━+$/ } as never)).toBeDefined()
   await ui.unmount()
 })
 

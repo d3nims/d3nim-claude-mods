@@ -1,7 +1,7 @@
 {
  "from": "terry-edits.json",
  "default": {
-  "neck_bump": 2.0,
+  "neck_bump": 1.5,
   "back_bump": 1.0,
   "leg_min_width": 2,
   "leg_jump": 7,
@@ -100,11 +100,11 @@
    "area_spread": 0.047
   },
   "stretch": {
-   "neck_bump": 2.0,
+   "neck_bump": 1.3,
    "back_bump": 0,
    "leg_min_width": 3,
    "leg_jump": 5,
-   "area_spread": 0.062
+   "area_spread": 0.053
   },
   "wag": {
    "neck_bump": 1.0,
