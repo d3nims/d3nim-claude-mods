@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 Thumbs.db
 __pycache__/
+
+# auto-model 파일 로그 (/auto-model logdir): 프롬프트가 들어가서 올리지 않는다
+logs/

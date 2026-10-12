@@ -229,6 +229,11 @@ claude plugin update usage-meter@d3nim-claude-mods
 ### usage-meter 1.2.10 (2026-10-11): 카드 윗줄 버튼 뺌
 - 카드 맨 윗줄의 🐾(쓰다듬기)·🐕(옆 창) 버튼을 뺌: 터미널에서 이모지 버튼이 겹쳐 보이고 쓸 일이 적음. `/terry pet`·`/terry pane` 은 그대로.
 
+### auto-model 0.5.5 (2026-10-12): 파일 로그, 판단 기록 덮어쓰기
+- `/auto-model logdir <폴더> [noprompt] | off` (기본 꺼짐): 요청마다 판단을 `<폴더>/auto-model/<날짜>/<wsl|win|local>-<세션 앞 8자>.jsonl` 에 한 줄(JSON). kind: turn(이유·일꾼·usage·실제/원래 모델 비용·놓친 일꾼 후보·프롬프트 앞 80자) · compact(모드·크기·비용·Sonnet 실패 이유) · agent(서브에이전트 요청/실제 모델) · logdir. `noprompt` 면 프롬프트 문구를 뺌. `$.fs.write` 는 통째 쓰기라 줄을 들고 있다가 다시 씀(파일당 최근 500줄), reload 뒤엔 파일을 읽어 이어 붙임.
+- 집 PC: WSL `/mnt/c/dev/d3nim-claude-mods/logs`, Windows `C:\dev\d3nim-claude-mods\logs` (같은 폴더). 저장소 `.gitignore` 에 `logs/` (공개 저장소라 프롬프트가 올라가면 안 됨). 회사 PC 로그는 그 PC 에서 따로 분석.
+- 고침: store 'decisions' 를 세션마다 제 목록으로 통째로 덮어써서 터미널을 여럿 띄우거나 /reload-plugins 하면 `/auto-model log` 기록이 사라졌다 → 항목에 세션 id 를 달고 다른 세션 것은 두고 합침, session.start 에서 이 세션 것을 되살림.
+
 ### 확인 못 한 것 (실기 확인 필요)
 - 실제 Claude Code 화면에서 밴드/`/dog`가 어떻게 보이는지, 15프레임 갱신이 부담 없는지.
 - 파이리(포켓몬) 실험 파일은 저작권 문제로 저장소에 올리기 전에 지웠다. 불꽃·테리 관련만 남김.

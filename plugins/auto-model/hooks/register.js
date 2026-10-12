@@ -40,7 +40,7 @@ const SAVING = { plugin: 'auto-model', key: 'saving' }
 const ASK = { plugin: 'auto-model', key: 'ask' }
 let askHandled = true // 부탁한 압축이 시작됐는지 (안 되면 3초 뒤 직접)
 
-const DEFAULTS = { enabled: true, ttlMinutes: 60, minTokens: 150000, route: 'auto', pin: null, mainHaiku: false, lightSwitch: false, worker: 'shadow', warnPct: 85 }
+const DEFAULTS = { enabled: true, ttlMinutes: 60, minTokens: 150000, route: 'auto', pin: null, mainHaiku: false, lightSwitch: false, worker: 'shadow', warnPct: 85, logDir: null, logPrompt: true }
 let settings = { ...DEFAULTS }
 // 메인 대화의 마지막 모델 호출: 시각, 다음 요청이 다시 보낼 크기, 답한 모델
 let last = null
@@ -400,6 +400,8 @@ async function logCompaction($, c) {
     log.push({ at: await $.clock.now(), trigger: c.trigger, mode: c.mode || null, model: c.model || null, before: c.before ?? null, after: c.after ?? null, usage: c.usage ?? null })
     await $.store.set('compactions', log.slice(-20))
   } catch {}
+  const at = await $.clock.now()
+  await writeLog($, [{ kind: 'compact', time: localTime(at), at, ...c }])
 }
 
 // ---- 압축 요약: 쉬고 와서(cold) 우리 [압축] 버튼일 때는 Sonnet, 작업 중(warm)은 원래 모델 ----
@@ -479,13 +481,76 @@ async function publish($, base, model, reason) {
 }
 
 async function remember($, entry) {
+  entry.sid = sessionId
   decisions.push(entry)
   decisions = decisions.slice(-100)
 }
+// store 'decisions' 는 이 컴퓨터의 모든 세션이 같이 쓴다: 다른 세션 것은 두고 이 세션 것만 바꿔 넣는다
+// (전엔 세션마다 제 목록으로 통째로 덮어써서, 터미널을 여럿 띄우거나 /reload-plugins 하면 기록이 사라졌다)
 async function flushLog($) {
+  const rows = decisions.filter(d => !d.logged)
+  for (const d of rows) d.logged = true
   try {
-    await $.store.set('decisions', decisions)
+    const saved = (await $.store.get('decisions')) || []
+    const merged = [...saved.filter(d => !sessionId || d.sid !== sessionId), ...decisions].sort((a, b) => a.at - b.at)
+    await $.store.set('decisions', merged.slice(-100))
   } catch {}
+  await writeLog($, rows.map(turnRow))
+}
+async function restoreDecisions($) {
+  try {
+    const saved = (await $.store.get('decisions')) || []
+    if (sessionId) decisions = saved.filter(d => d.sid === sessionId)
+  } catch {}
+}
+
+// ---- 파일 로그 (/auto-model logdir <폴더>): 잘 돌았는지 나중에 보려고, 대화마다 한 파일에 요청 하나당 한 줄 (JSON)
+// <폴더>/auto-model/<날짜>/<wsl|win|local>-<세션 앞 8자>.jsonl. 파일 쓰기는 통째로 쓰는 것뿐이라 줄을 들고 있다가 다시 쓴다
+const fileLines = new Map() // 파일 경로 → 줄들 (reload 뒤 처음 쓸 때 파일에서 다시 읽어 이어 붙인다)
+let logFailed = false
+let envTag = null
+const localTime = at => new Date(at).toLocaleString('sv-SE') // YYYY-MM-DD HH:MM:SS
+async function envOf($) {
+  if (envTag) return envTag
+  let wsl = null
+  try {
+    wsl = await $.env.get('WSL_DISTRO_NAME')
+  } catch {}
+  envTag = wsl ? 'wsl' : /^[A-Za-z]:[\\/]/.test(settings.logDir || '') ? 'win' : 'local'
+  return envTag
+}
+async function logPath($, at) {
+  const dir = settings.logDir.replace(/[\\/]+$/, '')
+  const sep = /^[A-Za-z]:/.test(dir) || dir.includes('\\') ? '\\' : '/'
+  return [dir, 'auto-model', dayKey(at), `${await envOf($)}-${(sessionId || 'unknown').slice(0, 8)}.jsonl`].join(sep)
+}
+async function writeLog($, rows) {
+  if (!settings.logDir || !rows.length) return true
+  try {
+    const path = await logPath($, await $.clock.now())
+    let lines = fileLines.get(path)
+    if (!lines) {
+      lines = []
+      try {
+        if (await $.fs.exists(path)) lines = (await $.fs.read(path)).split('\n').filter(Boolean)
+      } catch {}
+    }
+    for (const row of rows) lines.push(JSON.stringify(row))
+    lines = lines.slice(-500)
+    fileLines.set(path, lines)
+    await $.fs.write(path, lines.join('\n') + '\n')
+    logFailed = false
+    return true
+  } catch (err) {
+    if (!logFailed) void $.ui.toast('auto-model 로그를 못 썼어요: ' + String((err && err.message) || err).slice(0, 80)).catch(() => {})
+    logFailed = true
+    return false
+  }
+}
+// 판단 한 줄: 내부 표시(sid·logged…)는 빼고, 프롬프트는 noprompt 면 뺀다
+function turnRow(d) {
+  const { sid, logged, potentialCounted, prompt, ...rest } = d
+  return { kind: 'turn', time: localTime(d.at), ...rest, ...(settings.logPrompt && prompt ? { prompt } : {}) }
 }
 
 // 이번 턴의 모델: 사람이 고른 세션 모델(base)을 기준으로, 내릴지 / 그대로 둘지 / 되돌릴지
@@ -632,6 +697,7 @@ async function statusText($) {
       lines.push(`  ${timeText(c.at)} · ${c.mode === 'cold' ? '쉬고 와서' : c.mode === 'warm' ? '작업 중' : c.trigger || ''}${c.model ? ' · ' + prettyName(c.model).split(' ')[0] + ' 요약' : ''} · ${c.before ? tokensText(c.before) : '?'} → ${c.after ? tokensText(c.after) : '?'} · 입력 ${u.input_tokens ?? '?'} · 캐시 읽기 ${u.cache_read_input_tokens ?? '?'} · 캐시 쓰기 ${u.cache_creation_input_tokens ?? '?'} · 출력 ${u.output_tokens ?? '?'}`)
     }
   }
+  lines.push('파일 로그: ' + (settings.logDir ? settings.logDir + (settings.logPrompt ? '' : ' (프롬프트 뺌)') : '꺼짐 (/auto-model logdir <폴더>)'))
   lines.push('(/auto-model log: 최근 판단 기록)')
   return lines.join('\n')
 }
@@ -709,8 +775,9 @@ export function register(on) {
       settings = { ...DEFAULTS, ...((await $.store.get('settings')) || {}) }
     } catch {}
     await restoreMemory($)
+    await restoreDecisions($)
     await restoreCost($)
-    await $.command.register({ name: 'auto-model', description: '캐시를 아끼며 모델을 골라요: 쉰 뒤 압축 제안, 가벼운 요청 자동 전환 (on · off · auto · manual · pin · log)' })
+    await $.command.register({ name: 'auto-model', description: '캐시를 아끼며 모델을 골라요: 쉰 뒤 압축 제안, 가벼운 요청 자동 전환 (on · off · auto · manual · pin · log · logdir)' })
     $.clock.every(30000, () => void check($))
     $.clock.every(60000, () => void (async () => {
       await flushCost($)
@@ -909,6 +976,8 @@ export function register(on) {
       const subs = (await $.store.get('subagents')) || []
       subs.push({ at: await $.clock.now(), type: e.subagentType, requested: routed ? 'haiku' : e.model || null, resolved: (r && r.model) || null, routed })
       await $.store.set('subagents', subs.slice(-50))
+      const s = subs[subs.length - 1]
+      await writeLog($, [{ kind: 'agent', time: localTime(s.at), ...s, ...(e.agentId ? { parent: e.agentId } : {}) }])
     } catch {}
     return r
   }).catch(($, e, next) => next(e))
@@ -925,6 +994,7 @@ export function register(on) {
     if (mode) (compactMode = null), (askHandled = true)
     let r = null
     let model = null
+    let failed = null
     if (mode === 'cold' && last && (await $.clock.now()) - last.at >= settings.ttlMinutes * 60000) {
       let why = 'Sonnet 답이 비었어요'
       try {
@@ -934,7 +1004,10 @@ export function register(on) {
         r = null
         why = String((err && err.message) || err).slice(0, 80)
       }
-      if (!r) $.ui.toast(`📦 Sonnet 요약 실패 (${why}) → 원래 모델이 압축해요`)
+      if (!r) {
+        failed = why
+        $.ui.toast(`📦 Sonnet 요약 실패 (${why}) → 원래 모델이 압축해요`)
+      }
     }
     if (!r) {
       r = await next(e)
@@ -948,7 +1021,7 @@ export function register(on) {
       await saveMemory($)
       await clearHint($)
       if (mode) compactHandled = true
-      await logCompaction($, { trigger: e.trigger, mode, model, before: r.tokensBefore, after: r.tokensAfter, usage: r.usage })
+      const c = { trigger: e.trigger, mode, model, before: r.tokensBefore, after: r.tokensAfter, usage: r.usage, ...(failed ? { sonnetFailed: failed } : {}) }
       if (r.usage) await addCost($, model || current || sessionBase || MODELS.opus, r.usage) // 압축도 실제로 쓴 값
       if (model && r.usage) {
         // 쉬고 와서 Sonnet 이 압축: 원래 모델이 대화 전체를 다시 써서 요약했다면 대비
@@ -958,8 +1031,10 @@ export function register(on) {
         const read = (r.usage.input_tokens || 0) + (r.usage.cache_read_input_tokens || 0) + (r.usage.cache_creation_input_tokens || 0)
         const would = opusWouldCompact(base, read, r.usage.output_tokens)
         await addSaving($, 'compact', would - actual)
+        Object.assign(c, { actualUsd: actual, opusWouldUsd: would })
         $.ui.toast(`📦 Sonnet 압축 약 ${usd(actual)} · ${prettyName(base).split(' ')[0]}였다면 약 ${usd(would)} → 약 ${usd(Math.max(0, would - actual))} 절약`)
       }
+      await logCompaction($, c)
     }
     return r
   }).catch(($, e, next) => next(e))
@@ -1017,6 +1092,25 @@ export function register(on) {
       return { text: { on: '판단이 필요 없는 일은 일꾼(쓰기 Sonnet, 찾기·읽기 Haiku)이 맡아요', shadow: '일꾼 후보만 기록하고 실제로는 원래 모델이 처리해요', off: '일꾼을 껐어요 (@@ 로 손으로 부르는 건 그대로)' }[m] }
     }
     if (arg === 'log') return { text: await logText($) }
+    if (arg === 'logdir') {
+      const words = [...rest]
+      const noprompt = words.length > 1 && words[words.length - 1].toLowerCase() === 'noprompt'
+      if (noprompt) words.pop()
+      const dir = words.join(' ')
+      if (!dir) return { text: '/auto-model logdir <폴더> [noprompt] | off (지금: ' + (settings.logDir ? settings.logDir + (settings.logPrompt ? '' : ' · 프롬프트 뺌') : '꺼짐') + ')' }
+      if (dir.toLowerCase() === 'off') {
+        settings.logDir = null
+        await save()
+        return { text: '파일 로그를 껐어요' }
+      }
+      settings.logDir = dir
+      settings.logPrompt = !noprompt
+      envTag = null
+      await save()
+      const now = await $.clock.now()
+      const ok = await writeLog($, [{ kind: 'logdir', time: localTime(now), at: now, prompt: settings.logPrompt }])
+      return { text: ok ? `요청마다 판단을 기록해요: ${await logPath($, now)}` + (settings.logPrompt ? '' : ' (프롬프트 문구는 빼요)') : `${dir} 에 쓰지 못했어요. 폴더 경로를 확인해 주세요` }
+    }
     if (arg === 'ttl' || arg === 'min') {
       const n = Number(rest[0])
       if (!Number.isFinite(n) || n <= 0) return { text: arg === 'ttl' ? '/auto-model ttl <분> (예: 60)' : '/auto-model min <천 토큰> (예: 150)' }

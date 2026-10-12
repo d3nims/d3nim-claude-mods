@@ -118,6 +118,7 @@ node docs/preview/terry-view.mjs   # ←→ 동작, e 강도, m 그림 방식, w
 | `/auto-model worker on` · `shadow` · `off` | 일꾼 (기본 shadow: 기록만) |
 | `/auto-model compact` · `/terry compact` | 카드의 `[압축]` 과 같음 (마우스 클릭이 안 될 때; 쉬고 온 뒤면 Sonnet 요약) |
 | `/auto-model log` | 최근 판단 기록 (요청 앞부분, 이유, 대화 크기, 캐시, 사용량, shadow 손익, 놓친 일꾼 후보) |
+| `/auto-model logdir <폴더>` · `noprompt` · `off` | 요청마다 판단을 파일에 한 줄씩 남겨요 (`<폴더>/auto-model/<날짜>/<wsl·win>-<세션>.jsonl`, 나중에 잘 돌았는지 분석용). `noprompt` 는 프롬프트 문구를 빼고 숫자만. 기본은 꺼짐 |
 | `/auto-model preview` | 압축 제안 미리 보기 1분 |
 | `/auto-model warn 85` · `off` | 작업 중 압축 알림 기준(%) |
 
