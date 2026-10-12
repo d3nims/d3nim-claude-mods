@@ -376,10 +376,13 @@ test("auto-model's savings show under Terry as this conversation's share, dollar
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'terry', args: '' } as never)
   const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 120 } as never })
-  expect(await ui.find({ type: 'Text', text: /💰 이 대화 약 \$0\.40 아낌/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^이 대화 약 \$0\.40 아낌$/ })).toBeDefined()
   saving = { usdToday: 5.3, usdWeek: 6, fivePct: 4.2, weekPct: 0.8, calibrated: true, myPct: 65, sessionUsd: 1.1, sessionPct: 18.4 }
   await ui.redraw()
-  expect(await ui.find({ type: 'Text', text: /💰 이 대화 약 18% 아낌/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^이 대화 약 18% 아낌$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /아낌.*(5시간|주간)|65%/ } as never)).toBeUndefined() // the PC total and gauge share stay in /auto-model
+  saving = { ...saving, sessionShow: false } // two turns after the saving, auto-model takes the row down
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /아낌/ } as never)).toBeUndefined()
   await ui.unmount()
 })

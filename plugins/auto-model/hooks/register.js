@@ -210,6 +210,7 @@ async function addSaving($, kind, amount) {
   // 이 대화의 순절약 (카드의 '이 대화 약 N% 아낌')
   if (kind === 'worker' || kind === 'compact') sessionNet += amount
   else if (kind === 'loss') sessionNet -= amount
+  if ((kind === 'worker' || kind === 'compact') && amount > 0) savingShowTurns = SAVING_SHOW_TURNS
   try {
     const now = await $.clock.now()
     const all = (await $.store.get('savings')) || {}
@@ -258,6 +259,9 @@ async function savingsText($) {
 // 바뀌면) 기준점을 새로 잡아 초기화 직후의 급락을 사용으로 읽지 않는다. 다른 컴퓨터의 세션은 못 보니 1% 당 값이 작게 나올 수 있다.
 let sessionCost = 0 // 이 세션이 쓴 API 환산 비용 누적 (메인 + 서브에이전트 + 일꾼 + 압축)
 let sessionNet = 0 // 이 세션의 순절약 (일꾼·Sonnet 압축 절약 − 일꾼 실패 손해)
+// 카드의 '이 대화 약 N% 아낌' 은 새로 아낀 뒤 두 턴만: 계속 두면 쓴 값만 늘어 % 가 턴마다 줄어든다 (상세는 /auto-model 에)
+const SAVING_SHOW_TURNS = 2
+let savingShowTurns = 0
 let pendingSpent = 0 // 아직 오늘 기록(savings[날짜].spent)에 더하지 않은 비용
 let costSavedAt = 0
 const calib = { five_hour: null, seven_day: null } // 기준점 { resetsAt, pct, cost }
@@ -388,6 +392,7 @@ async function publishSaving($) {
     // 카드: 이 대화에서 아낀 비율과 금액. 이 대화의 실제 비용이 $1 도 안 되면 비율은 아직(null)
     sessionUsd: Math.max(0, sessionNet),
     sessionPct: myShare(sessionCost, sessionNet),
+    sessionShow: savingShowTurns > 0,
   }
   try {
     await $.state.set(SAVING, value)
@@ -964,6 +969,7 @@ export function register(on) {
       turnTools.delete(e.turnId)
     }
     const r = await next(e)
+    if (!e.agentId && savingShowTurns > 0 && --savingShowTurns === 0) await publishSaving($)
     await flushLog($)
     return r
   }).catch(($, e, next) => next(e))

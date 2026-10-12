@@ -56,6 +56,8 @@ export type AutoModelSaving = {
   sessionUsd: number
   /** 이 대화에서 아낀 비율 (%): 순절약 / (이 대화 실제 비용 + 순절약). 실제 비용이 $1 미만이면 null */
   sessionPct: number | null
+  /** 카드에 보일 때: 새로 아낀 뒤 두 턴 동안만 true (없으면 보인다: 예전 auto-model) */
+  sessionShow?: boolean
 }
 
 // /auto-model compact 를 usage-meter 에게 부탁: 우리가 시작한 압축은 우리 훅이 못 가로채서, usage-meter 가 이걸 보고 시작한다

@@ -554,13 +554,14 @@ async function autoRoute($) {
     return null
   }
 }
-// auto-model 의 절약: 이 대화에서 몇 % 아꼈는지 (이 대화 비용이 아직 $1 미만이면 달러). 아낀 게 있을 때만 카드 아래 한 줄.
+// auto-model 의 절약: 이 대화에서 몇 % 아꼈는지 (이 대화 비용이 아직 $1 미만이면 달러). 새로 아낀 뒤 두 턴만 카드 아래 한 줄
+// (auto-model 이 sessionShow 로 알려 준다. 그 값이 없는 예전 auto-model 이면 계속).
 // PC 합계와 게이지 % 환산은 /auto-model 상세에 둔다
 const AUTO_SAVING = { plugin: 'auto-model', key: 'saving' }
 async function autoSaving($) {
   try {
     const { value } = await $.state.get(AUTO_SAVING)
-    return value && value.sessionUsd > 0.005 ? value : null
+    return value && value.sessionUsd > 0.005 && value.sessionShow !== false ? value : null
   } catch {
     return null
   }
@@ -569,8 +570,10 @@ function savingRow(sv, Text, width) {
   if (!sv) return null
   const pct = sv.sessionPct != null ? sv.sessionPct.toFixed(sv.sessionPct < 10 ? 1 : 0) + '%' : null
   const usd = '$' + sv.sessionUsd.toFixed(2)
-  const text = [pct ? `💰 이 대화 약 ${pct} 아낌` : `💰 이 대화 약 ${usd} 아낌`, pct ? `💰 약 ${pct} 아낌` : `💰 약 ${usd} 아낌`].find(t => visible(t) <= width)
-  return text ? Text({ key: 'auto-saving', dimColor: true, children: [text] }) : null
+  // 💰 대신 초록 굵은 글씨로 눈에 띄게: Windows 에서 이모지 폭이 어긋나 '약 4349 아낌' 처럼 기호가 빠지고 지난 숫자가 남았다
+  // (진행 줄과 같은 문제)
+  const text = [pct ? `이 대화 약 ${pct} 아낌` : `이 대화 약 ${usd} 아낌`, pct ? `약 ${pct} 아낌` : `약 ${usd} 아낌`].find(t => visible(t) <= width)
+  return text ? Text({ key: 'auto-saving', color: '#9be08a', bold: true, children: [text] }) : null
 }
 const familyName = id => String(id || '').replace(/^claude-/, '').split('-')[0]
 const manTokens = n => (n >= 10000 ? Math.round(n / 10000) + '만' : Math.round(n / 1000) + '천')

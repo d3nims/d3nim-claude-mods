@@ -19,11 +19,13 @@ function engine(on: any) {
     if (e.plugin === 'auto-model' && e.key === 'hint') world.hint = e.value
     if (e.plugin === 'auto-model' && e.key === 'ask') world.asks.push(e.value)
     if (e.plugin === 'auto-model' && e.key === 'memory') world.memory = e.value
+    if (e.plugin === 'auto-model' && e.key === 'saving') world.saving = e.value
     return next(e)
   })
   on('turn.step', async function* (_: unknown, e: any) {
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: { model: e.model, input_tokens: 10, cache_read_input_tokens: 400000, cache_creation_input_tokens: 2000, output_tokens: 500 } }
   })
+  on('turn.complete', (_: unknown, e: any) => ({ text: e.answer }))
   on('session.compact', (_: unknown, e: any) => {
     world.coreCompactions++
     return { messages: [{ role: 'user', text: 'Opus 요약', toolUses: [] }], tokensBefore: 400000, tokensAfter: 30000 }
@@ -101,6 +103,22 @@ test('while working, the card\'s button leaves the summary to the main model, no
   expect(world.completions.length).toBe(0)
   expect(r.messages[0].text).toBe('Opus 요약')
   expect(r.messages.length).toBe(1)
+})
+
+test('the card\'s savings row stays for two turns after a saving, then goes (the share only shrinks as the conversation spends)', async ($, on) => {
+  const { clock, world } = engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await step($, 1)
+  await clock.advance(61 * MIN)
+  await $.command.run({ command: 'auto-model', args: 'compact-prep' } as never)
+  await $.session.compact({ trigger: 'plugin', messages: MESSAGES } as never)
+  expect(world.saving).toMatchObject({ sessionShow: true })
+  const done = (n: number) => $.turn.complete({ turnId: 't' + n, answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+  await done(2)
+  expect(world.saving.sessionShow).toBe(true)
+  await done(3)
+  expect(world.saving.sessionShow).toBe(false)
+  expect(world.saving.sessionUsd).toBeGreaterThan(0) // the amount itself stays for /auto-model
 })
 
 test('the user messages are copied by code, not left to the model: short ones whole, long pastes clipped, notices left out', () => {
