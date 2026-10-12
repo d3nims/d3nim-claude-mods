@@ -411,41 +411,24 @@ async function logCompaction($, c) {
 
 // ---- 압축 요약: 쉬고 와서(cold) 우리 [압축] 버튼일 때는 Sonnet, 작업 중(warm)은 원래 모델 ----
 // 시험(대화 2개, 25만·50만 토큰): Sonnet 요약은 Opus 와 사실 보존이 같고 절반 값. 다만 승인·금지 범위를 일반화해 틀린 일이
-// 있어서, 사용자 메시지를 원문으로 붙이면 사라졌다. 그 섹션은 모델에 맡기지 않고 여기서 대화에서 그대로 꺼내 붙인다.
+// 있어서, 처음에는 사용자 메시지 원문 목록을 코드로 붙였다. 그 목록은 화면에 다 보여 장황하고 압축할수록 쌓여서(2026-10-12 사용자),
+// 이제는 승인·금지 문장만 Sonnet 이 요약 안에 짧게 그대로 인용한다.
 const COLD_SUMMARY = `아래는 Claude Code 와 사용자의 긴 대화 기록이에요. 이 대화가 압축되어, 이후에는 이 요약만 보고 같은 일을 이어 가야 해요.
-아래 항목으로 자세히 요약하세요. 사실만, 지어내지 말고, 경로·명령·숫자·버전은 정확히.
+아래 항목으로 요약하세요. 빠짐없이, 하지만 짧게 (같은 내용을 되풀이하지 말고). 사실만, 지어내지 말고, 경로·명령·숫자·버전은 정확히.
 1. 사용자의 목표와 요청 (시간 순)
 2. 핵심 기술 개념과 결정 사항 (왜 그렇게 정했는지 포함)
 3. 파일과 코드 (경로, 바뀐 내용)
 4. 오류와 고친 방법
-5. 사용자가 준 승인·허락의 범위와 금지 사항 (예외는 예외로, 일반 규칙과 구분해서)
+5. 사용자가 준 승인·허락과 금지 사항: 사용자가 한 말을 짧게 그대로 인용하고(따옴표, 한 줄 80자 안), 무엇에 대한 승인인지 붙이세요.
+   예: "ㅇㅋ 올려" → auto-model 0.5.8 커밋·푸시. 예외는 예외로, 일반 규칙과 구분해서. 승인·금지가 아닌 사용자 메시지는 옮겨 적지 마세요.
 6. 사용자의 선호와 작업 방식
 7. 남은 작업
 8. 지금 하던 일과 바로 다음 단계
-(사용자 메시지 원문 목록은 따로 붙으니 쓰지 마세요.)
 
 === 대화 기록 시작 ===
 `
-const SUMMARY_HEAD = '이 대화는 앞부분이 압축되어 이어지고 있어요. 아래는 앞부분의 요약과, 사용자가 보낸 메시지의 원문이에요.\n\n'
+const SUMMARY_HEAD = '이 대화는 앞부분이 압축되어 이어지고 있어요. 아래는 앞부분의 요약이에요.\n\n'
 
-const clip = (text, keep = 200) => (text.length > keep + 100 ? text.slice(0, keep) + `[…${text.length - keep}자 생략]` : text)
-// 사용자가 직접 보낸 메시지만 (시스템 알림·명령 기록·도구 결과·다른 세션의 메시지·이전 압축 요약은 빼고), 짧은 건 원문 그대로,
-// 긴 붙여넣기는 앞 200자만. 사용자가 '!' 로 직접 실행한 명령은 '(! 실행)' 으로 앞부분만 (배포 같은 승인의 근거라서)
-const NOT_TYPED = /^(<(system-reminder|task-notification|local-command|command-|cross-session-message|agent-message|bash-stdout|bash-stderr)|Another Claude session sent a message|This session is being continued from a previous conversation|\[Request interrupted)/
-export function userMessagesSection(messages) {
-  const lines = []
-  for (const m of messages || []) {
-    if (m.role !== 'user' || m.agentId) continue
-    let t = String(m.text || '').replace(/\u001b?\[?<\d+;\d+;\d+[mM]/g, '').trim() // (터미널 마우스 입력 찌꺼기)
-    if (!t || NOT_TYPED.test(t)) continue
-    t = t.replace(/\[Image: source: [^\]]*\]/g, '').trim()
-    if (!t) continue
-    const bash = /^<bash-input>([\s\S]*?)(<\/bash-input>|$)/.exec(t)
-    const line = bash ? '(! 실행) ' + clip(bash[1].trim(), 120) : clip(t)
-    lines.push(`${lines.length + 1}. ${line.replace(/\n+/g, ' ⏎ ')}`)
-  }
-  return '## 모든 사용자 메시지 (원문, 자동 추출. 긴 붙여넣기는 앞부분만)\n' + (lines.join('\n') || '(없음)')
-}
 function transcriptText(messages) {
   const out = []
   for (const m of messages || []) {
@@ -465,7 +448,7 @@ async function sonnetCompact($, e) {
     timeoutMs: 15 * 60000,
   })
   if (!r || !r.isAnswered || !String(r.text || '').trim()) return null
-  const text = SUMMARY_HEAD + r.text.trim() + '\n\n' + userMessagesSection(e.messages)
+  const text = SUMMARY_HEAD + r.text.trim()
   // 크기는 실제로 잰 값으로: 압축 전 = Sonnet 이 실제로 읽은 양, 압축 뒤 = 요약 글 길이로 어림 (기억해 둔 last.tokens 는
   // 그새 /compact 로 줄었을 수 있어서 쓰지 않는다)
   const u = r.usage || {}
@@ -989,10 +972,9 @@ export function register(on) {
   }).catch(($, e, next) => next(e))
 
   // 압축이 끝나면: 대화 크기를 줄여 적고, 압축 요청이 실제로 쓴 토큰을 기록한다 (제안이 맞는지 나중에 보려고)
-  // 압축: 우리 [압축] 버튼(trigger plugin)일 때만 손을 댄다. 쉬고 와서 캐시가 식었으면 Sonnet 이 요약하고(사용자 메시지 원문을
-  // 붙여서), 작업 중이면 원래 모델이 그대로 한다. 플러그인이 만든 메시지는 화면에 다 보여서(숨길 방법이 없다) 원래 모델 요약에는
-  // 원문을 붙이지 않는다: 그 목록은 Sonnet 이 승인 범위를 일반화하던 걸 막으려고 붙인 것. 사람이 친 /compact(manual)와 자동
-  // 압축(auto)은 그대로. 실패하면 원래대로 (fail open)
+  // 압축: 우리 [압축] 버튼(trigger plugin)일 때만 손을 댄다. 쉬고 와서 캐시가 식었으면 Sonnet 이 요약하고(승인·금지는 사용자 말을
+  // 짧게 인용), 작업 중이면 원래 모델이 그대로 한다. 플러그인이 만든 요약은 화면에 다 보인다(숨길 방법이 없다). 사람이 친
+  // /compact(manual)와 자동 압축(auto)은 그대로. 실패하면 원래대로 (fail open)
   on('session.compact', async ($, e, next) => {
     // 다른 플러그인(usage-meter 의 [압축] · /terry compact)이 시작한 압축: 종류는 미리 들은 게 있으면 그것, 없으면 지금 상태로 판단
     // (클릭 핸들러에서 명령을 부르면 Windows 에서 매달려서, 미리 알리지 않아도 되게 했다)

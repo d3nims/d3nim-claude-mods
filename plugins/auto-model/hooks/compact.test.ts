@@ -1,5 +1,4 @@
 import { expect, mock, test } from 'claude-code/testing'
-import { userMessagesSection } from './register.js'
 
 const MIN = 60000
 const OPUS = 'claude-opus-5-5'
@@ -71,7 +70,7 @@ test('while working, a nearly full conversation gets the compact hint; later sno
   expect(world.hint).toMatchObject({ kind: 'warm', percent: 91 })
 })
 
-test('after a break, the card\'s compact button has Sonnet summarize, with the user messages copied verbatim', async ($, on) => {
+test('after a break, the card\'s compact button has Sonnet summarize; approvals are quoted inside the summary, no message list', async ($, on) => {
   const { clock, world } = engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   await step($, 1)
@@ -83,7 +82,8 @@ test('after a break, the card\'s compact button has Sonnet summarize, with the u
   expect(world.completions.at(-1)?.model).toBe('sonnet')
   expect(world.coreCompactions).toBe(0) // core's Opus summarizer was not used
   expect(r.messages[0].text).toMatch(/1\. 목표/)
-  expect(r.messages[0].text).toMatch(/3\. push 는 하지 마/)
+  expect(r.messages[0].text).not.toMatch(/모든 사용자 메시지|push 는 하지 마/) // the user messages are not copied after it any more
+  expect(world.completions.at(-1)?.prompt).toMatch(/그대로 인용/) // approvals and bans: the user's words, quoted short
   const status = ((await $.command.run({ command: 'auto-model', args: '' } as never)) as any).text
   expect(status).toMatch(/쉬고 와서 · Sonnet 요약/)
   expect(status).toMatch(/오늘 약 \$[\d.]+ 절약 \(일꾼 0번 · 압축 1번\)/) // Opus would have rewritten 400K at $8/MTok
@@ -121,17 +121,6 @@ test('the card\'s savings row stays for two turns after a saving, then goes (the
   expect(world.saving.sessionUsd).toBeGreaterThan(0) // the amount itself stays for /auto-model
 })
 
-test('the user messages are copied by code, not left to the model: short ones whole, long pastes clipped, notices left out', () => {
-  const text = userMessagesSection(MESSAGES as never)
-  expect(text).toMatch(/1\. ㅇㅇ 보내/)
-  expect(text).toMatch(/2\. x{200}\[…800자 생략\]/)
-  expect(text).toMatch(/3\. push 는 하지 마/)
-  expect(text).not.toMatch(/무시할 알림/)
-  expect(text).toMatch(/4\. \(! 실행\) gh pr merge 62 --squash/)
-  expect(text).toMatch(/5\. \[Image #12\] 이게 뭔뜻이$/m)
-  expect(text).not.toMatch(/continued from a previous|merged|agent-message|source:/)
-})
-
 test('a /compact typed by hand or the automatic one is left to the main model as before', async ($, on) => {
   const { clock, world } = engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
@@ -154,7 +143,7 @@ test('/auto-model compact typed by hand asks usage-meter (so a cold one can stil
   // usage-meter takes it: a compaction from another plugin, with no word beforehand, is judged cold here
   const c: any = await $.session.compact({ trigger: 'plugin', messages: MESSAGES } as never)
   expect(world.completions.at(-1)?.model).toBe('sonnet')
-  expect(c.messages[0].text).toMatch(/3\. push 는 하지 마/)
+  expect(c.messages[0].text).toMatch(/1\. 목표/)
   await clock.advance(3500)
   expect(world.coreCompactions).toBe(0) // taken, so no fallback
   // nobody takes it
