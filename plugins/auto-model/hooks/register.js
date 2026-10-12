@@ -983,8 +983,10 @@ export function register(on) {
   }).catch(($, e, next) => next(e))
 
   // 압축이 끝나면: 대화 크기를 줄여 적고, 압축 요청이 실제로 쓴 토큰을 기록한다 (제안이 맞는지 나중에 보려고)
-  // 압축: 우리 [압축] 버튼(trigger plugin)일 때만 손을 댄다. 쉬고 와서 캐시가 식었으면 Sonnet 이 요약하고, 작업 중이면 원래 모델이
-  // 요약하되 사용자 메시지 원문을 붙인다. 사람이 친 /compact(manual)와 자동 압축(auto)은 그대로. 실패하면 원래대로 (fail open)
+  // 압축: 우리 [압축] 버튼(trigger plugin)일 때만 손을 댄다. 쉬고 와서 캐시가 식었으면 Sonnet 이 요약하고(사용자 메시지 원문을
+  // 붙여서), 작업 중이면 원래 모델이 그대로 한다. 플러그인이 만든 메시지는 화면에 다 보여서(숨길 방법이 없다) 원래 모델 요약에는
+  // 원문을 붙이지 않는다: 그 목록은 Sonnet 이 승인 범위를 일반화하던 걸 막으려고 붙인 것. 사람이 친 /compact(manual)와 자동
+  // 압축(auto)은 그대로. 실패하면 원래대로 (fail open)
   on('session.compact', async ($, e, next) => {
     // 다른 플러그인(usage-meter 의 [압축] · /terry compact)이 시작한 압축: 종류는 미리 들은 게 있으면 그것, 없으면 지금 상태로 판단
     // (클릭 핸들러에서 명령을 부르면 Windows 에서 매달려서, 미리 알리지 않아도 되게 했다)
@@ -1009,10 +1011,7 @@ export function register(on) {
         $.ui.toast(`📦 Sonnet 요약 실패 (${why}) → 원래 모델이 압축해요`)
       }
     }
-    if (!r) {
-      r = await next(e)
-      if (mode && r && r.messages) r = { ...r, messages: [...r.messages, { role: 'user', text: userMessagesSection(e.messages), toolUses: [] }] }
-    }
+    if (!r) r = await next(e)
     if (!e.agentId && r && r.messages) {
       // 어떤 압축이든(직접 친 /compact·자동 포함) 대화 크기를 새로 적고 세션 상태에도 남긴다: 안 그러면 /reload-plugins 뒤
       // 압축 전 크기가 되살아나 이미 압축된 대화에 또 압축을 권했다

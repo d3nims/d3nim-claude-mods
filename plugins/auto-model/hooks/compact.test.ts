@@ -89,7 +89,7 @@ test('after a break, the card\'s compact button has Sonnet summarize, with the u
   expect(status).toMatch(/이 PC 합계 · /) // the PC total stays in the details
 })
 
-test('while working, the card\'s button keeps the main model but adds the user messages verbatim', async ($, on) => {
+test('while working, the card\'s button leaves the summary to the main model, nothing added (it would all show on screen)', async ($, on) => {
   const { clock, world } = engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   await step($, 1)
@@ -100,7 +100,7 @@ test('while working, the card\'s button keeps the main model but adds the user m
   expect(world.coreCompactions).toBe(1)
   expect(world.completions.length).toBe(0)
   expect(r.messages[0].text).toBe('Opus 요약')
-  expect(r.messages[1].text).toMatch(/모든 사용자 메시지[\s\S]*1\. ㅇㅇ 보내/)
+  expect(r.messages.length).toBe(1)
 })
 
 test('the user messages are copied by code, not left to the model: short ones whole, long pastes clipped, notices left out', () => {

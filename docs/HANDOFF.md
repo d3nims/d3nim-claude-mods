@@ -234,6 +234,11 @@ claude plugin update usage-meter@d3nim-claude-mods
 - 집 PC: WSL `/mnt/c/dev/d3nim-claude-mods/logs`, Windows `C:\dev\d3nim-claude-mods\logs` (같은 폴더). 저장소 `.gitignore` 에 `logs/` (공개 저장소라 프롬프트가 올라가면 안 됨). 회사 PC 로그는 그 PC 에서 따로 분석.
 - 고침: store 'decisions' 를 세션마다 제 목록으로 통째로 덮어써서 터미널을 여럿 띄우거나 /reload-plugins 하면 `/auto-model log` 기록이 사라졌다 → 항목에 세션 id 를 달고 다른 세션 것은 두고 합침, session.start 에서 이 세션 것을 되살림.
 
+### auto-model 0.5.6 (2026-10-12): 작업 중 압축에 원문 목록을 붙이지 않음
+- 작업 중(warm) 카드 [압축]과 Sonnet 이 실패해 원래 모델로 넘어간 압축에는 '모든 사용자 메시지' 메시지를 더 붙이지 않는다. 플러그인이 만든 메시지는 화면에 전부 보이고 숨길 방법이 Mods API(2.1.296)에 없어서, 압축 뒤 긴 목록이 화면을 덮었다. core 요약(handle 있는 메시지)은 "압축됨" 한 줄로만 보인다.
+- 쉬고 와서(cold) Sonnet 요약은 그대로 원문 목록 포함: 요약 글 자체를 플러그인이 넣어야 해서 어차피 화면에 보이고, 원문 목록은 Sonnet 의 승인 범위 일반화를 막으려고 붙인 것.
+- Windows 'dk' 터미널에서 카드 버튼([압축]·[계속])에 포인터를 올려도 반응 없음 (2026-10-12 사용자 확인). 그 터미널에서 마우스 입력이 안 들어오는 것으로 보임 (미확인) → `/terry compact` 로 대신.
+
 ### 확인 못 한 것 (실기 확인 필요)
 - 실제 Claude Code 화면에서 밴드/`/dog`가 어떻게 보이는지, 15프레임 갱신이 부담 없는지.
 - 파이리(포켓몬) 실험 파일은 저작권 문제로 저장소에 올리기 전에 지웠다. 불꽃·테리 관련만 남김.
