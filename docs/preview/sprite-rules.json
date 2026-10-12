@@ -1,0 +1,131 @@
+{
+ "from": "terry-edits.json",
+ "default": {
+  "neck_bump": 2.0,
+  "back_bump": 1.0,
+  "leg_min_width": 2,
+  "leg_jump": 7,
+  "area_spread": 0.065
+ },
+ "sets": {
+  "ask": {
+   "neck_bump": 1.0,
+   "back_bump": 0,
+   "leg_min_width": 99,
+   "leg_jump": 0,
+   "area_spread": 0.0
+  },
+  "bark": {
+   "neck_bump": 1.5,
+   "back_bump": 0,
+   "leg_min_width": 3,
+   "leg_jump": 4,
+   "area_spread": 0.015
+  },
+  "door": {
+   "neck_bump": 1.0,
+   "back_bump": 0,
+   "leg_min_width": 99,
+   "leg_jump": 0,
+   "area_spread": 0.005
+  },
+  "droop": {
+   "neck_bump": 1.5,
+   "back_bump": 1.0,
+   "leg_min_width": 2,
+   "leg_jump": 3,
+   "area_spread": 0.014
+  },
+  "eat": {
+   "neck_bump": 0,
+   "back_bump": 1.0,
+   "leg_min_width": 3,
+   "leg_jump": 3,
+   "area_spread": 0.011
+  },
+  "jump": {
+   "neck_bump": 1.5,
+   "back_bump": 0,
+   "leg_min_width": 2,
+   "leg_jump": 7,
+   "area_spread": 0.041
+  },
+  "pant": {
+   "neck_bump": 1.5,
+   "back_bump": 0,
+   "leg_min_width": 3,
+   "leg_jump": 4,
+   "area_spread": 0.024
+  },
+  "pet": {
+   "neck_bump": 1.0,
+   "back_bump": 0,
+   "leg_min_width": 99,
+   "leg_jump": 0,
+   "area_spread": 0.0
+  },
+  "run": {
+   "neck_bump": 1.0,
+   "back_bump": 0,
+   "leg_min_width": 2,
+   "leg_jump": 5,
+   "area_spread": 0.065
+  },
+  "sad": {
+   "neck_bump": 1.0,
+   "back_bump": 0,
+   "leg_min_width": 99,
+   "leg_jump": 0,
+   "area_spread": 0.009
+  },
+  "sit": {
+   "neck_bump": 1.0,
+   "back_bump": 0,
+   "leg_min_width": 99,
+   "leg_jump": 0,
+   "area_spread": 0.026
+  },
+  "sleep": {
+   "neck_bump": 1.3,
+   "back_bump": 0,
+   "leg_min_width": 99,
+   "leg_jump": 0,
+   "area_spread": 0.0
+  },
+  "sniff": {
+   "neck_bump": 0,
+   "back_bump": 1.0,
+   "leg_min_width": 2,
+   "leg_jump": 3,
+   "area_spread": 0.047
+  },
+  "stretch": {
+   "neck_bump": 2.0,
+   "back_bump": 0,
+   "leg_min_width": 3,
+   "leg_jump": 5,
+   "area_spread": 0.062
+  },
+  "wag": {
+   "neck_bump": 1.0,
+   "back_bump": 0,
+   "leg_min_width": 99,
+   "leg_jump": 0,
+   "area_spread": 0.005
+  },
+  "walk": {
+   "neck_bump": 1.2,
+   "back_bump": 0,
+   "leg_min_width": 2,
+   "leg_jump": 6,
+   "area_spread": 0.041
+  },
+  "dig": {
+   "neck_bump": 0,
+   "back_bump": 1.0,
+   "leg_min_width": 99,
+   "leg_jump": 0,
+   "area_spread": 0.05
+  }
+ }
+}
