@@ -7,13 +7,13 @@ const BAND = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80 
 let currentModel = 'claude-opus-5-5'
 let currentEffort = 'high'
 let toasts: string[] = [] // what the card toasted, in this test
-function engine(on: any, five = 38, week = 71) {
+function engine(on: any, five = 38, week = 71, env: Record<string, string> = {}) {
   toasts = []
   currentModel = 'claude-opus-5-5'
   currentEffort = 'high'
   mock.store(on)
   const clock = mock.clock(on)
-  mock.env(on, { COLORTERM: 'truecolor', TERRY_HOUR: '14' }) // mid-afternoon, so no dinner or night nap gets in the way
+  mock.env(on, { COLORTERM: 'truecolor', TERRY_HOUR: '14', ...env }) // mid-afternoon, so no dinner or night nap gets in the way
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: {} }))
   on('session.model', () => ({ value: currentModel }))
@@ -390,4 +390,84 @@ test("auto-model's savings show under Terry as this conversation's share, dollar
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: /아낌/ } as never)).toBeUndefined()
   await ui.unmount()
+})
+
+test('memory shows on the Terry card only once under 15% is left, with the share, shortened to fit; /terry mem any time', async ($, on) => {
+  engine(on, 38, 71, { WSL_DISTRO_NAME: 'Ubuntu' })
+  let availKb = 6 * 1024 * 1024
+  on('fs.read', (_: unknown, e: any) => {
+    if (e.path !== '/proc/meminfo') throw new Error('no such file')
+    return { value: `MemTotal:       16777216 kB\nMemFree:         1000000 kB\nMemAvailable:   ${availKb} kB\n` }
+  })
+  on('process.run', (_: unknown, e: any) => ({
+    value: e.argv[0] === 'ps' && e.argv.includes('-C') ? { exitCode: 0, stdout: '1048576\n524288\n', stderr: '' } : { exitCode: 0, stdout: 'claude 1572864\nchrome 1048576\n', stderr: '' },
+  }))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const detail = async () => String(((await $.command.run({ command: 'terry', args: 'mem' } as never)) as any).text)
+  expect(await detail()).toMatch(/^ {2}남음 6\.0GB \/ 전체 16GB \(38% 남음\)$/m) // reads now, rather than waiting for the 30-second tick
+  const roomy = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  expect(await roomy.find({ type: 'Text', text: /메모리/ })).toBeUndefined() // 38% left: nothing on the card
+  await roomy.unmount()
+  availKb = 2 * 1024 * 1024 // 12.5% left
+  expect(await detail()).toMatch(/WSL 에 배정된 몫/)
+  const wide = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  const line = await wide.find({ type: 'Text', text: /^WSL 메모리 2\.0\/16GB 남음 \(13%\) {2}Claude 2개 1\.5GB$/ })
+  expect(line?.props.color).toBe('#ffd166')
+  await wide.unmount()
+  // the narrow card from the screenshot: mood and model only, then the shortest reading
+  const narrow = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 46 } as never })
+  expect(await narrow.find({ type: 'Text', text: /^램 2\.0G 13%$/ })).toBeDefined()
+  await narrow.unmount()
+  availKb = 1024 * 1024 // 6% left: red
+  await detail()
+  const low = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  expect((await low.find({ type: 'Text', text: /메모리 1\.0\/16GB 남음 \(6%\)/ }))?.props.color).toBe('#ff6b6b')
+  await low.unmount()
+})
+
+test('/terry mem says what happens if it fills up; /terry mem clean lists other Claude sessions with (추천), and several picks are closed', async ($, on) => {
+  const clock = engine(on, 38, 71, { WSL_DISTRO_NAME: 'Ubuntu', HOME: '/home/me' })
+  const now = Date.now()
+  const sessions: Record<string, object> = {
+    '/home/me/.claude/sessions/100.json': { pid: 100, sessionId: 'mine', name: 'dcm', status: 'busy', cwd: '/w/mods' },
+    '/home/me/.claude/sessions/200.json': { pid: 200, sessionId: 'old', name: 'st', status: 'idle', statusUpdatedAt: now - 2 * 3600000, cwd: '/w/stock' },
+    '/home/me/.claude/sessions/300.json': { pid: 300, sessionId: 'work', name: 'ah', status: 'busy', cwd: '/w/harness' },
+    '/home/me/.claude/sessions/400.json': { pid: 400, sessionId: 'old', name: 'st', status: 'idle', statusUpdatedAt: now - 10 * 60000, cwd: '/w/stock' },
+  }
+  on('fs.read', (_: unknown, e: any) => {
+    if (e.path === '/proc/meminfo') return { value: 'MemTotal:       8388608 kB\nMemAvailable:    838860 kB\n' }
+    if (e.path === '/proc/self/stat') return { value: '100 (claude) S 1 100' }
+    if (sessions[e.path]) return { value: JSON.stringify(sessions[e.path]) }
+    throw new Error('no such file')
+  })
+  const killed: string[] = []
+  on('process.run', (_: unknown, e: any) => {
+    const a = e.argv
+    if (a[0] === 'kill') return (killed.push(a[1]), { value: { exitCode: 0, stdout: '', stderr: '' } })
+    if (a[0] === 'ps' && a.includes('-C')) return { value: { exitCode: 0, stdout: '1048576\n524288\n524288\n262144\n', stderr: '' } }
+    if (a[0] === 'ps' && a[2] === 'comm=,rss=') return { value: { exitCode: 0, stdout: 'claude 1048576\nchrome 786432\nclaude 524288\nunattended-upgr 20000\n', stderr: '' } }
+    const ps = ['100 90 1048576 claude claude --continue', '200 1 524288 claude claude --continue', '300 1 524288 claude claude', '400 1 262144 claude claude --continue', '500 1 102400 node node /x/mcp-server-git/index.js', '600 1 7000 tmux tmux new-session claude --continue']
+    return { value: { exitCode: 0, stdout: killed.length ? ps.filter(l => !killed.includes(l.split(' ')[0])).join('\n') : ps.join('\n'), stderr: '' } }
+  })
+  let asked: any = null
+  on('tool.call', (_: unknown, e: any) => ((asked = e), new Promise(() => {}))) // the pick dialog, left open: picked by number below
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const run = async (args: string) => String(((await $.command.run({ command: 'terry', args } as never)) as any).text)
+  const detail = await run('mem')
+  expect(detail).toMatch(/\n\n앞으로\n {2}빠듯해요\. 더 차면 느려져요\.\n {2}5% 아래로 남으면 리눅스가 가장 큰 claude \(1\.0GB\)부터 강제로 꺼요 \(WSL 안에서\)\./)
+  const list = await run('mem clean')
+  expect(list).toMatch(/^1\. Claude 세션 'st' \(추천\)\n {3}stock, 0\.5GB, 같은 대화가 또 떠 있음, 쉰 지 2시간$/m)
+  expect(list).toMatch(/^2\. Claude 세션 'st' \(추천\)\n {3}stock, 0\.3GB, 같은 대화가 또 떠 있음, 쉰 지 10분$/m)
+  expect(list).toMatch(/^3\. Claude 가 남긴 도우미 mcp-server-git \(추천\)\n {3}0\.1GB, 띄운 세션이 이미 꺼짐$/m)
+  expect(list).toMatch(/^4\. Claude 세션 'ah'\n {3}harness, 0\.5GB, 작업 중이라 끄면 하던 일이 멈춰요$/m)
+  expect(detail).toMatch(/많이 쓰는 프로그램\n {2}claude 2개 1\.5GB\n {2}chrome 0\.8GB\n\n/) // same names add up, crumbs left out
+  expect(list).not.toMatch(/dcm|tmux/) // this session and its tmux are never listed
+  expect(list).toMatch(/크기만 참고 \(여기서 끄지 않아요\)\n {2}chrome 0\.8GB/)
+  await clock.advance(1000)
+  expect(JSON.stringify(asked)).toMatch(/여러 개 가능/)
+  const done = await run('mem clean 1, 3')
+  expect(killed).toEqual(['200', '500'])
+  expect(done).toMatch(/^껐어요\n {2}Claude 세션 'st' \(stock\) 0\.5GB\n {2}Claude 가 남긴 도우미 mcp-server-git 0\.1GB\n\n지금 남은/)
+  expect(await run('mem clean 2')).toMatch(/먼저 \/terry mem clean/) // the list is used up once picked
 })

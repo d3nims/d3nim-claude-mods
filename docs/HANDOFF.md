@@ -272,3 +272,10 @@ claude plugin update usage-meter@d3nim-claude-mods
 ### auto-model 0.5.9 · usage-meter 1.2.14 (2026-10-13): /clear 뒤 크기, 안내 줄 깨짐
 - auto-model: /clear 는 같은 프로세스가 새 세션으로 이어지고 session.start 가 안 돈다 → 지운 대화의 크기·시각(last)을 들고 있어 새 대화 첫 답 전까지 지운 대화 기준 '캐시 식음' 이 뜰 수 있었다. 이제 session.end(reason 'clear') 에서 버림. (대표님 PC 의 '61만 캐시 식음' 은 /clear 뒤 새벽 루프가 같은 대화에 쌓은 크기로 보임: 그 세션 `/context` 로 확인 안내)
 - usage-meter: 압축 안내 줄에서 ⏰·📦 와 · 를 뺌. 분이 바뀔 때만 몇 칸 다시 그리는 줄이라 SSH 너머 Windows 에서 '⏰14시간 341 쉬어' 처럼 밀리고 지난 글자가 남았다 (마우스를 움직이면 바로잡힘 = 부분 다시 그리기 문제).
+
+### usage-meter 1.2.15 (2026-10-13): 메모리 표시와 정리
+- 동료 건의(8GB 노트북에서 메모리가 차 꺼짐). 30초마다 읽음(테리 화면일 때만): WSL·Linux `/proc/meminfo` MemAvailable, Windows PowerShell + VisualBasic ComputerInfo (약 0.6~1초; Get-CimInstance 는 1초 넘고 처음엔 10초). Mac 은 아직 없음. Claude 합계는 `ps -C claude` / Windows 는 경로가 claude-code 또는 `.local\bin` 인 claude.exe 만 (데스크톱 앱 제외; PowerShell `-match` 의 `\b` 가 단어 경계라 처음엔 하나도 못 찾음).
+- 카드: 남은 양 15% 미만일 때만 한 줄 (사용자 결정: 늘 띄우지 않음), 8% 미만 빨강. 폭에 맞춰 `메모리 1.4/31GB 남음 (5%)  Claude 2개 0.8GB` → … → `램 1.4G 5%` → `램 5%`. 테리만 들어가는 폭이면 사용량 줄 밑. 이모지·· 없음(부분 다시 그리기 밀림).
+- `/terry mem`: 제목 + 들여 쓴 줄 + 빈 줄로 나눔(사용자 요청). 같은 이름 프로세스는 묶고 0.05GB 미만은 뺌. '앞으로': 남은 비율별로 무엇이 꺼질 수 있는지 (Linux 는 가장 큰 프로세스를 커널이, Windows 는 메모리 부족 경고 뒤 더 달라는 프로그램).
+- `/terry mem clean`: `~/.claude/sessions/<pid>.json`(이름·status idle/busy·statusUpdatedAt)으로 다른 Claude 세션을 찾음. 이 세션은 제외(Linux 는 /proc/self/stat 의 pid, Windows 는 세션 id). 추천: 30분 넘게 쉼, 같은 대화가 둘 이상인데 5분 넘게 쉼, 부모가 죽은 MCP 도우미. 작업 중은 추천 안 함. `$.ui.ask` multiSelect 창(4개까지, 명령이 끝난 뒤 띄움) + 번호/`추천`. 끄기 직전 pid·종류·세션 id 다시 확인, Linux `kill`, Windows `taskkill /F`.
+

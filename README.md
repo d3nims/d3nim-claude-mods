@@ -74,6 +74,8 @@ claude plugin install usage-meter@d3nim-claude-mods
 | `/terry pet` | 테리 쓰다듬기 |
 | `/terry pane` | 테리를 옆 창에 따로 크게 띄우기 |
 | `/terry stats` | 오늘의 기록: 요청 수, 토큰, 가장 오래 걸린 요청, 테리가 달린 거리, 쓰다듬은 횟수 |
+| `/terry mem` | 메모리: 전체·남은 양·Claude 가 쓰는 양·많이 쓰는 프로그램, 더 차면 생기는 일. 남은 양이 15% 아래면 카드에도 한 줄 (8% 아래 빨강) |
+| `/terry mem clean` | 꺼도 되는 것 목록 (쉬는 Claude 세션·주인 잃은 도우미, `(추천)` 표시)과 여러 개 고르는 창. `/terry mem clean 1 3`, `추천` 으로도 |
 | `/terry braille` · `/terry quad` | 그림 방식 바꾸기 (`/flame1` 도 같음). 테리는 점자(`braille`)가 기본이고 점 하나하나 다듬은 그림이에요. `quad` 는 블록용으로 그렸던 예전(1.0.2) 그림으로 보여요 |
 | `/terry help` | 사용법 |
 

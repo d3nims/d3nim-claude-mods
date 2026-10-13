@@ -301,6 +301,8 @@ const guide = () =>
     '/terry catch    : 상황별 동작 미리보기 (catch 테스트 통과 · droop 테스트 실패 · door 한도 대기 · stretch 하루 첫 입력 · eat 저녁)',
     '/terry stats    : 오늘의 기록 (요청 수 · 토큰 · 가장 오래 걸린 요청 · 테리가 달린 거리 · 쓰다듬은 횟수)',
     '/terry pet      : 쓰다듬기',
+    '/terry mem      : 메모리 자세히 (전체 · 남은 양 · Claude 가 쓰는 양 · 많이 쓰는 프로그램 · 더 차면 생기는 일). 15% 아래로 남으면 카드에도 한 줄 (8% 아래면 빨강)',
+    '/terry mem clean: 꺼도 되는 것 목록 (쉬는 Claude 세션 · 남은 도우미, 추천 표시). /terry mem clean 1 3 으로 여러 개, 추천 으로 추천만 끄기',
     '/terry compact  : 카드의 [압축] 과 같음 (마우스가 안 될 때, auto-model 과 같이 쓸 때)',
   ].join('\n')
 
@@ -600,6 +602,302 @@ function usageLine(Box, Text, vals, width) {
     }),
   })
 }
+// 메모리: 8GB 노트북에서 Claude 를 오래 돌리다 메모리가 차서 꺼진다는 건의 (2026-10-13). 30초마다 읽어, 남은 양이 15% 아래일
+// 때만 카드에 한 줄 (늘 띄우면 자리만 차지한다: 사용자 결정). 언제든 /terry mem 으로 자세히.
+// WSL·Linux 는 /proc/meminfo (MemAvailable: 캐시처럼 바로 내줄 수 있는 것까지), Windows 는 PowerShell 한 번 (0.6초 안팎:
+// Get-CimInstance 는 1초가 넘고 처음엔 10초까지 걸려서 VisualBasic ComputerInfo 를 쓴다). Mac 은 아직 못 읽는다 (줄 없음).
+// Claude 는 이 PC 에 떠 있는 Claude Code 프로세스 합계 (Windows 의 Claude 데스크톱 앱은 경로로 뺀다)
+let mem = null // { total, avail, claude, count, wsl } (바이트)
+let memSource // undefined 아직 모름 · 'proc' · 'win' · null 못 읽음
+const WIN_MEM = [
+  'Add-Type -AssemblyName Microsoft.VisualBasic',
+  '$c = New-Object Microsoft.VisualBasic.Devices.ComputerInfo',
+  "$p = @(Get-Process claude -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*claude-code*' -or $_.Path -like '*\\.local\\bin\\*' })",
+  '"$($c.TotalPhysicalMemory) $($c.AvailablePhysicalMemory) $([long]($p | Measure-Object WorkingSet64 -Sum).Sum) $($p.Count)"',
+].join('; ')
+const powershell = command => ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command]
+async function readMem($) {
+  if (memSource === null) return
+  if (memSource !== 'win') {
+    try {
+      const info = await $.fs.read('/proc/meminfo')
+      const kb = k => Number((info.match(new RegExp('^' + k + ':\\s+(\\d+)', 'm')) || [])[1] || 0) * 1024
+      let claude = 0
+      let count = 0
+      try {
+        const { stdout } = await $.process.run(['ps', '-C', 'claude', '-o', 'rss='], { timeoutMs: 5000 })
+        for (const l of stdout.split('\n')) if (l.trim()) (claude += Number(l) * 1024), count++
+      } catch {}
+      if (memSource === undefined) memSource = 'proc'
+      let wsl = false
+      try {
+        wsl = !!(await $.env.get('WSL_DISTRO_NAME'))
+      } catch {}
+      mem = kb('MemTotal') ? { total: kb('MemTotal'), avail: kb('MemAvailable'), claude, count, wsl } : null
+      return
+    } catch {
+      if (memSource === 'proc') return void (mem = null)
+    }
+  }
+  try {
+    const { exitCode, stdout } = await $.process.run(powershell(WIN_MEM), { timeoutMs: 15000 })
+    const [total, avail, claude, count] = stdout.trim().split(/\s+/).map(Number)
+    if (exitCode !== 0 || !(total > 0)) throw new Error('no reading')
+    memSource = 'win'
+    mem = { total, avail, claude: claude || 0, count: count || 0, wsl: false }
+  } catch {
+    if (memSource === undefined) memSource = null // 이 PC 에선 못 읽는다: 다시 시도하지 않는다
+    mem = null
+  }
+}
+const gb = n => {
+  const g = n / 2 ** 30
+  return g >= 10 ? String(Math.round(g)) : g.toFixed(1)
+}
+const MEM_SHOW = 0.15 // 이 비율보다 적게 남으면 카드에 띄운다 (노랑), 8% 아래면 빨강
+const memColor = m => (m.avail / m.total < 0.08 ? '#ff6b6b' : '#ffd166')
+// 폭에 맞는 가장 긴 표기. 30초마다 숫자만 바뀌며 다시 그리는 줄이라 이모지와 · 는 쓰지 않는다 (Windows 에서 글자가 밀림)
+function memText(m, width) {
+  const where = m.wsl ? 'WSL ' : ''
+  const who = m.count ? '  Claude ' + (m.count > 1 ? m.count + '개 ' : '') + gb(m.claude) + 'GB' : ''
+  const pct = Math.round((m.avail / m.total) * 100) + '%'
+  return [
+    `${where}메모리 ${gb(m.avail)}/${gb(m.total)}GB 남음 (${pct})${who}`,
+    `${where}메모리 ${gb(m.avail)}/${gb(m.total)}GB 남음 (${pct})`,
+    `메모리 ${gb(m.avail)}GB 남음 (${pct})`,
+    `램 ${gb(m.avail)}G ${pct}`,
+    `램 ${pct}`,
+  ].find(t => visible(t) <= width) ?? null
+}
+function memRow(Text, width, key) {
+  if (!mem || mem.avail / mem.total >= MEM_SHOW) return null
+  const text = memText(mem, width)
+  return text ? Text({ key, color: memColor(mem), children: [text] }) : null
+}
+// 많이 쓰는 프로그램: raw 는 큰 프로세스 순 [이름, 바이트], groups 는 같은 이름끼리 합친 다섯 [이름, 바이트, 개수]
+// (claude 가 세션마다 하나씩 떠서 'claude 0.5GB, claude 0.5GB, …' 로 늘어서던 것을 'claude 4개 1.9GB' 로. 0.05GB 안 되는 건 뺀다)
+const WIN_TOP = 'Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 30 | ForEach-Object { "$($_.ProcessName) $($_.WorkingSet64)" }'
+async function topProcs($) {
+  let raw = []
+  try {
+    if (memSource === 'win') {
+      const out = (await $.process.run(powershell(WIN_TOP), { timeoutMs: 15000 })).stdout
+      raw = out.trim().split(/\r?\n/).map(l => l.trim().split(/\s+/)).filter(x => x.length === 2).map(([n, b]) => [n, Number(b)])
+    } else {
+      const out = (await $.process.run(['ps', '-eo', 'comm=,rss=', '--sort=-rss'], { timeoutMs: 5000 })).stdout
+      raw = out.trim().split('\n').slice(0, 30).map(l => l.trim().split(/\s+/)).map(([n, k]) => [n, Number(k) * 1024])
+    }
+  } catch {}
+  const sums = new Map()
+  for (const [n, b] of raw) {
+    const key = n.replace(/\.exe$/i, '')
+    const g = sums.get(key.toLowerCase()) || [key, 0, 0]
+    sums.set(key.toLowerCase(), [g[0], g[1] + b, g[2] + 1])
+  }
+  const groups = [...sums.values()].filter(g => g[1] >= 0.05 * 2 ** 30).sort((a, b) => b[1] - a[1]).slice(0, 5)
+  return { raw, groups }
+}
+const groupText = ([n, b, k]) => `${n} ${k > 1 ? k + '개 ' : ''}${gb(b)}GB`
+// 남은 비율별로 더 차면 무슨 일이 생기는지: Linux(WSL 포함)는 바닥나면 커널이 가장 큰 프로세스를 강제로 끄고,
+// Windows 는 '메모리 부족' 경고 뒤 메모리를 더 달라는 프로그램이 꺼진다 (대개 가장 크게 불어나는 것)
+function memForecast(pct, biggest) {
+  const big = biggest ? `가장 큰 ${biggest[0]} (${gb(biggest[1])}GB)` : '가장 큰 프로그램'
+  const kill = memSource === 'win' ? `'메모리 부족' 경고가 뜨고 메모리를 더 달라는 프로그램이 꺼질 수 있어요 (대개 ${big}).` : `리눅스가 ${big}부터 강제로 꺼요${mem.wsl ? ' (WSL 안에서)' : ''}.`
+  if (pct >= 25) return ['여유 있어요.', '15% 아래로 남으면 카드에 표시돼요.']
+  if (pct >= 15) return ['아직 괜찮아요.', '15% 아래로 남으면 느려지기 시작하고 카드에 표시돼요.', '5% 아래로 남으면 ' + kill]
+  if (pct >= 8) return ['빠듯해요. 더 차면 느려져요.', '5% 아래로 남으면 ' + kill, '/terry mem clean 으로 정리해 보세요.']
+  return ['위험해요. 곧 ' + kill, '지금 /terry mem clean 으로 정리하세요.']
+}
+async function memDetail($) {
+  await readMem($)
+  if (!mem) return memSource === null ? '이 PC 에선 메모리를 읽지 못해요 (WSL·Linux·Windows 만 돼요)' : '메모리를 읽지 못했어요'
+  const pct = Math.round((mem.avail / mem.total) * 100)
+  const { raw, groups } = await topProcs($)
+  // 터미널 폭이 좁아도 읽히게: 주제마다 제목 한 줄, 내용은 들여 쓴 짧은 줄, 주제 사이는 한 줄 비움
+  const lines = [
+    `메모리${mem.wsl ? ' (WSL)' : memSource === 'win' ? ' (Windows)' : ''}`,
+    `  남음 ${gb(mem.avail)}GB / 전체 ${gb(mem.total)}GB (${pct}% 남음)`,
+    `  사용 ${gb(mem.total - mem.avail)}GB${mem.count ? `, 그중 Claude Code ${mem.count}개 ${gb(mem.claude)}GB` : ''}`,
+  ]
+  if (groups.length) lines.push('', '많이 쓰는 프로그램', ...groups.map(g => '  ' + groupText(g)))
+  lines.push('', '앞으로', ...memForecast(pct, raw[0]).map(l => '  ' + l))
+  if (mem.wsl) lines.push('', '참고', '  WSL 에 배정된 몫이에요 (기본은 PC 메모리의 절반).', '  Windows 전체는 더 빠듯할 수 있어요.')
+  return lines.join('\n')
+}
+
+// /terry mem clean: 꺼도 되는 것을 번호와 함께 보여 주고, 고른 것만 끈다 (알아서 끄지 않는다).
+// 후보: 다른 Claude 세션 (~/.claude/sessions/<pid>.json 의 이름·상태: 쉬는 중/작업 중), 띄운 세션이 이미 꺼진 MCP 도우미.
+// 추천: 30분 넘게 쉰 세션, 같은 대화가 두 번 떠 있는 쪽 중 쉬는 것, 주인 잃은 도우미. 작업 중인 세션은 추천하지 않는다.
+// 지금 이 세션은 넣지 않는다. 브라우저 같은 다른 프로그램은 크기만 보여 준다.
+const WIN_CLEAN = [
+  '$all = @(Get-CimInstance Win32_Process)',
+  '$ids = @{}; foreach ($q in $all) { $ids[[int]$q.ProcessId] = 1 }',
+  "foreach ($q in $all) { $cc = $q.Name -eq 'claude.exe' -and ($q.ExecutablePath -like '*claude-code*' -or $q.ExecutablePath -like '*\\.local\\bin\\*'); $orphan = $q.CommandLine -match 'mcp' -and -not $ids.ContainsKey([int]$q.ParentProcessId); if ($cc -or $orphan) { \"$($q.ProcessId)`t$($q.ParentProcessId)`t$($q.WorkingSetSize)`t$(if ($cc) { 'claude' } else { 'helper' })`t$($q.CommandLine)\" } }",
+].join('; ')
+let cleanList = [] // 마지막으로 보여 준 후보 (번호로 고를 때 같은 프로세스인지 다시 확인)
+async function procsForClean($) {
+  if (memSource === 'win') {
+    const out = (await $.process.run(powershell(WIN_CLEAN), { timeoutMs: 20000 })).stdout
+    return out.trim().split(/\r?\n/).filter(Boolean).map(l => {
+      const [pid, ppid, bytes, kind, ...cmd] = l.split('\t')
+      return { pid: Number(pid), ppid: Number(ppid), bytes: Number(bytes), kind, cmd: cmd.join('\t') }
+    })
+  }
+  const out = (await $.process.run(['ps', '-eo', 'pid=,ppid=,rss=,comm=,args='], { timeoutMs: 5000 })).stdout
+  return out.trim().split('\n').map(l => l.trim().split(/\s+/)).map(([pid, ppid, rss, comm, ...args]) => ({ pid: Number(pid), ppid: Number(ppid), bytes: Number(rss) * 1024, comm, cmd: args.join(' ') }))
+    .map(p => ({ ...p, kind: p.comm === 'claude' ? 'claude' : p.ppid === 1 && p.comm !== 'tmux' && /mcp/i.test(p.cmd) ? 'helper' : null }))
+    .filter(p => p.kind)
+}
+async function configDir($) {
+  const read = async name => {
+    try {
+      return (name === 'dir' ? await $.env.get('CLAUDE_CONFIG_DIR') : name === 'win' ? await $.env.get('USERPROFILE') : await $.env.get('HOME')) || ''
+    } catch {
+      return ''
+    }
+  }
+  const dir = await read('dir')
+  if (dir) return dir.replace(/[\\/]+$/, '')
+  const home = await read(memSource === 'win' ? 'win' : 'home')
+  return home ? home.replace(/[\\/]+$/, '') + (memSource === 'win' ? '\\.claude' : '/.claude') : null
+}
+const agoText = ms => {
+  const m = Math.max(0, Math.floor(ms / 60000))
+  return m >= 60 ? Math.floor(m / 60) + '시간' + (m % 60 ? ' ' + (m % 60) + '분' : '') : m + '분'
+}
+async function cleanCandidates($) {
+  await readMem($)
+  if (!mem) return null
+  const procs = await procsForClean($)
+  const dir = await configDir($)
+  const sep = memSource === 'win' ? '\\' : '/'
+  let myId = null
+  let myPid = null
+  try {
+    myId = await $.session.id()
+  } catch {}
+  if (memSource !== 'win') {
+    try {
+      myPid = Number((await $.fs.read('/proc/self/stat')).split(' ')[0]) || null
+    } catch {}
+  }
+  const now = Date.now()
+  const list = []
+  for (const p of procs) {
+    if (p.kind === 'helper') {
+      const name = (p.cmd.match(/[\w@.\/-]*mcp[\w.-]*/i) || [p.comm || 'mcp'])[0].split(/[\\/]/).pop()
+      list.push({ pid: p.pid, kind: 'helper', bytes: p.bytes, label: `Claude 가 남긴 도우미 ${name}`, note: '띄운 세션이 이미 꺼짐', rec: true })
+      continue
+    }
+    let info = null
+    try {
+      if (dir) info = JSON.parse(await $.fs.read(dir + sep + 'sessions' + sep + p.pid + '.json'))
+    } catch {}
+    if (!info || info.pid !== p.pid) continue // 세션 기록이 없는 claude (claude -p, 다른 도구): 건드리지 않는다
+    if (myPid ? p.pid === myPid : info.sessionId === myId) continue
+    const idle = info.status === 'idle' ? now - (info.statusUpdatedAt || info.updatedAt || now) : 0
+    const where = String(info.cwd || '').split(/[\\/]/).filter(Boolean).pop() || ''
+    list.push({
+      pid: p.pid,
+      kind: 'claude',
+      sessionId: info.sessionId,
+      bytes: p.bytes,
+      label: `Claude 세션 ${info.name ? `'${info.name}'` : where}`,
+      where: info.name ? where : '',
+      busy: info.status === 'busy',
+      idle,
+    })
+  }
+  // 같은 대화가 둘 이상 떠 있으면 (이 세션과 같은 대화 포함) 쉬는 쪽은 5분만 지나도 추천
+  for (const c of list) {
+    if (c.kind !== 'claude') continue
+    const twin = c.sessionId === myId || list.filter(o => o.sessionId === c.sessionId).length > 1
+    c.note = c.busy ? '작업 중이라 끄면 하던 일이 멈춰요' : (twin ? '같은 대화가 또 떠 있음, ' : '') + `쉰 지 ${agoText(c.idle)}`
+    c.rec = !c.busy && (c.idle >= 30 * 60000 || (twin && c.idle >= 5 * 60000))
+  }
+  list.sort((a, b) => Number(b.rec) - Number(a.rec) || b.bytes - a.bytes)
+  return list
+}
+function cleanText(list, top) {
+  const pct = Math.round((mem.avail / mem.total) * 100)
+  const lines = [`메모리 정리 (남은 ${gb(mem.avail)}/${gb(mem.total)}GB, ${pct}%)`, '']
+  if (!list.length) lines.push('  끌 만한 것이 없어요 (다른 Claude 세션도, 남은 도우미도 없음)')
+  list.forEach((c, i) => lines.push(`${i + 1}. ${c.label}${c.rec ? ' (추천)' : ''}`, `   ${[c.where, gb(c.bytes) + 'GB', c.note].filter(Boolean).join(', ')}`))
+  const others = top.groups.filter(([n]) => !/^claude$/i.test(n) && n.toLowerCase() !== 'node').slice(0, 3)
+  if (others.length) lines.push('', '크기만 참고 (여기서 끄지 않아요)', ...others.map(g => '  ' + groupText(g)))
+  if (list.length) {
+    lines.push('', '끄는 법', '  /terry mem clean 1 3    여러 개는 띄어 쓰거나 쉼표로')
+    if (list.some(c => c.rec)) lines.push('  /terry mem clean 추천   추천만')
+  }
+  const notes = []
+  if (list.some(c => c.kind === 'claude')) notes.push('  Claude 세션은 꺼도 대화가 저장돼 있어요.', '  그 폴더에서 claude --resume 으로 이어가요.')
+  if (mem.wsl) notes.push('  WSL 에서 끈 만큼 Windows 쪽엔 천천히 돌아가요.', '  (.wslconfig 에 autoMemoryReclaim=gradual 이면 더 빨리)')
+  if (notes.length) lines.push('', '참고', ...notes)
+  return lines.join('\n')
+}
+// 고른 번호를 끈다: 보여 준 뒤 바뀌었을 수 있으니 같은 pid·같은 대화인지 다시 확인한다
+async function cleanPick($, picks) {
+  const fresh = await cleanCandidates($)
+  if (!fresh) return '메모리를 읽지 못했어요'
+  const done = []
+  const skipped = []
+  for (const c of picks) {
+    const now = fresh.find(f => f.pid === c.pid && f.kind === c.kind && f.sessionId === c.sessionId)
+    if (!now) {
+      skipped.push(c.label + ' (이미 꺼졌거나 바뀌었어요)')
+      continue
+    }
+    try {
+      const r = memSource === 'win'
+        ? await $.process.run(['taskkill.exe', '/PID', String(c.pid), '/F'], { timeoutMs: 10000 })
+        : await $.process.run(['kill', String(c.pid)], { timeoutMs: 5000 })
+      if (r.exitCode === 0) done.push(`${c.label}${c.where ? ' (' + c.where + ')' : ''} ${gb(c.bytes)}GB`)
+      else skipped.push(c.label + ' (끄지 못했어요)')
+    } catch {
+      skipped.push(c.label + ' (끄지 못했어요)')
+    }
+  }
+  await readMem($)
+  cleanList = []
+  $.ui.invalidate('ui.render')
+  return [
+    ...(done.length ? ['껐어요', ...done.map(d => '  ' + d)] : ['끈 것이 없어요']),
+    ...(skipped.length ? ['', '못 끈 것', ...skipped.map(d => '  ' + d)] : []),
+    ...(mem ? ['', `지금 남은 ${gb(mem.avail)}/${gb(mem.total)}GB (${Math.round((mem.avail / mem.total) * 100)}%)`] : []),
+  ].join('\n')
+}
+async function memClean($, args) {
+  const words = args.split(/[\s,]+/).filter(Boolean)
+  if (words.length) {
+    if (!cleanList.length) return '먼저 /terry mem clean 으로 목록을 보세요'
+    const picks = words.includes('추천') || words.includes('rec')
+      ? cleanList.filter(c => c.rec)
+      : words.map(w => cleanList[Number(w) - 1]).filter(Boolean)
+    if (!picks.length) return '고른 번호가 목록에 없어요 (예: /terry mem clean 1 3)'
+    return cleanPick($, picks)
+  }
+  const list = await cleanCandidates($)
+  if (!list) return memSource === null ? '이 PC 에선 메모리를 읽지 못해요 (WSL·Linux·Windows 만 돼요)' : '메모리를 읽지 못했어요'
+  cleanList = list
+  if (list.length >= 2) void askClean($, list)
+  return cleanText(list, await topProcs($))
+}
+// 목록을 보여 준 뒤 여러 개 고르는 창도 띄운다 (창은 4개까지: 추천부터. 나머지는 번호로).
+// 명령이 끝난 뒤에 띄운다: 명령 안에서 다른 창을 기다리면 Windows 에서 매달린 적이 있다 (카드 버튼, 1.2.7)
+async function askClean($, list) {
+  try {
+    await $.clock.sleep(500)
+    const shown = list.slice(0, 4)
+    const labels = shown.map((c, i) => `${i + 1}. ${c.label.replace(/,/g, ' ')} ${gb(c.bytes)}GB${c.rec ? ' (추천)' : ''}`)
+    const answer = await $.ui.ask('메모리를 비우려면 끌 것을 고르세요 (여러 개 가능)?', { options: labels, header: '메모리 정리', multiSelect: true })
+    if (cleanList !== list) return // 그 사이 번호로 이미 골랐다
+    const nums = [...String(answer).matchAll(/(?:^|,)\s*(\d+)\./g)].map(m => Number(m[1]))
+    const picks = nums.map(n => shown[n - 1]).filter(Boolean)
+    if (!picks.length) return
+    const result = await cleanPick($, picks)
+    await $.ui.toast('usage-meter: ' + result.split('\n').filter(Boolean).map(l => l.trim()).join(' / '), { timeoutMs: 10000 })
+  } catch {} // 창을 닫으면 아무것도 끄지 않는다
+}
 const familyName = id => String(id || '').replace(/^claude-/, '').split('-')[0]
 const manTokens = n => (n >= 10000 ? Math.round(n / 10000) + '만' : Math.round(n / 1000) + '천')
 function hintRow($, hint, Box, Text, Button, width) {
@@ -725,6 +1023,14 @@ export function register(on) {
     } catch (err) {}
     await refresh($)
     $.clock.every(30000, () => refresh($))
+    // 메모리는 테리 화면일 때만 읽는다 (Windows 는 PowerShell 을 띄우니 안 보일 땐 아낀다)
+    const memTick = async () => {
+      if (style !== 'terry') return
+      await readMem($)
+      $.ui.invalidate('ui.render')
+    }
+    void memTick()
+    $.clock.every(30000, () => void memTick())
     $.clock.every(1000, () => {
       void runAsks($)
       // 한도가 풀리는 순간: 문 앞에서 벌떡 일어나 짖고 알린다
@@ -895,6 +1201,11 @@ export function register(on) {
         return { text: '압축을 시작해요 (카드의 [압축] 과 같아요: 쉬고 온 뒤면 Sonnet 이 요약)' }
       }
       if (name === 'terry' && (arg === 'stats' || arg === '기록' || arg === '오늘')) return { text: await statsText($) }
+      const [first, second, ...rest] = arg.split(/\s+/)
+      if (name === 'terry' && ['mem', 'memory', '메모리', '램'].includes(first)) {
+        if (second === 'clean' || second === '정리') return { text: await memClean($, rest.join(' ')) }
+        return { text: await memDetail($) }
+      }
       if (name === 'terry' && (arg === 'pane' || arg === '창' || arg === 'window')) {
         const opened = await openPane($)
         return { text: opened.isPlaced ? '테리를 옆 창에 띄웠어요 (창 위 ✕ 나 Esc 로 닫기)' : '테리 창을 열었는데 화면이 좁아 아직 못 그렸어요: 터미널을 넓히면 나타나요' }
@@ -1046,7 +1357,10 @@ export function register(on) {
       const routeTail = !rt || nano ? '' : routed && !tight ? ' ← ' + (prettyModel(rt.base) || '').split(' ')[0] : rt.mode === 'stopped' && !mini ? ' ✋' : ''
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
       const moodText = moodLabel(m, tight) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
-      const tokenLines = mini || nano ? [] : !t ? [' '] : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
+      let tokenLines = mini || nano ? [] : !t ? [' '] : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
+      // 메모리 줄: 카드 안 폭에 맞춰 줄인다. 사용량 표와 테리 높이 안에 안 들어가면 토큰 줄을 하나 뺀다 (좁은 카드의 '캐시' 줄)
+      const memLine = memRow(Text, mini ? sideW : tight ? sideW - 2 : sideW - 4, 'tc-mem')
+      if (memLine && (mini ? 0 : 2) + 2 + (nano ? 0 : 1) + tokenLines.length + 1 > TERRY_ROWS - BAND_NAMES.length) tokenLines = tokenLines.slice(0, -1)
       const showEffort = !nano && (!mini || visible((name ?? '') + ' · ' + (effort ?? '--')) <= sideW)
       const timeText = !t ? (mini ? '요청 없음' : '아직 요청이 없어요') : (working || tight ? '' : '지난 요청 ') + t.time
       const timeLine = mini && visible(timeText) > sideW ? timeText.split(' · ')[0] : timeText
@@ -1075,6 +1389,7 @@ export function register(on) {
           }),
           ...(nano ? [] : [Text({ key: 'tc-time', dimColor: !working, children: [timeLine] })]),
           ...tokenLines.map((line, i) => Text({ key: 'tc-tokens' + i, dimColor: true, children: [line] })),
+          ...(memLine ? [memLine] : []),
         ],
       })
       // 사용량: 오른쪽 아래에 줄을 맞춘 작은 표 (이름 / 막대 / % / 초기화). 폭이 모자라면 초기화 문구를 뺀다.
@@ -1107,7 +1422,7 @@ export function register(on) {
       const extras = [hint, saving].filter(Boolean)
       const withHint = top => (extras.length ? Box({ key: 'terry-with-hint', flexDirection: 'column', children: [top, ...extras] }) : top)
       // 오른쪽 위에 카드, 오른쪽 아래에 사용량 표: 테리와 같은 높이 안에 들어간다
-      if (!beside) return withHint(Box({ key: 'terry-alone', flexDirection: 'column', children: [dog, usageLine(Box, Text, vals, cols)] }))
+      if (!beside) return withHint(Box({ key: 'terry-alone', flexDirection: 'column', children: [dog, usageLine(Box, Text, vals, cols), ...[memRow(Text, cols, 'terry-mem')].filter(Boolean)] }))
       if (beside) {
         const side = Box({ key: 'terry-side', flexDirection: 'column', height: TERRY_ROWS, justifyContent: 'space-between', children: [card, usageTable] })
         return withHint(Box({ key: 'terry-row', flexDirection: 'row', children: [dog, Box({ key: 'terry-gap', marginLeft: gap, children: [side] })] }))
