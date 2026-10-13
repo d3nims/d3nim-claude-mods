@@ -186,7 +186,8 @@ let turn = blankTurn()
 let lastTurn = null
 // 응답이 흘러오는 동안의 추정 토큰 (요청이 끝나면 API 가 준 정확한 값으로 바뀐다): 영문 4글자, 한글 1글자 = 1토큰 정도
 const estimate = chars => Math.round(chars / 3)
-const fmtTokens = n => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n))
+// 백만부터는 M ('캐시 15046k' 처럼 자릿수가 길어져 읽기 어려웠다)
+const fmtTokens = n => (n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M' : n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n))
 function turnLine(t, live) {
   const end = live ? Date.now() : t.end
   const secs = Math.max(0, (end - t.start) / 1000)
@@ -196,8 +197,10 @@ function turnLine(t, live) {
   // 응답 중에는 지금까지 쓴 출력 토큰 (계속 는다). 속도는 끝난 뒤에만: 생각하거나 도구를 돌리는 동안엔 보이는 답이
   // 늘지 않아 시간만 흘러, 응답 중의 tok/s 는 점점 떨어져 보였다
   const tail = live ? (out ? ' · 출력 ' + fmtTokens(out) : '') : tps ? ' · ' + tps + ' tok/s' : ''
+  const clock = secs < 60 ? secs.toFixed(1) + '초' : Math.floor(secs / 60) + '분 ' + Math.round(secs % 60) + '초'
   return {
-    time: (secs < 60 ? secs.toFixed(1) + '초' : Math.floor(secs / 60) + '분 ' + Math.round(secs % 60) + '초') + tail,
+    time: clock + tail,
+    clock, // 응답 중 출력은 토큰 줄에도 있다: 토큰 줄이 보이면 시간 줄엔 시간만 (출력이 두 번 찍혔다)
     tokens: '입력 ' + fmtTokens(t.input) + ' · 출력 ' + fmtTokens(out) + ' · 캐시 ' + fmtTokens(t.cacheRead),
   }
 }
@@ -1365,7 +1368,7 @@ export function register(on) {
       const memLine = memRow(Text, mini ? sideW : tight ? sideW - 2 : sideW - 4, 'tc-mem')
       if (memLine && (mini ? 0 : 2) + 2 + (nano ? 0 : 1) + tokenLines.length + 1 > TERRY_ROWS - BAND_NAMES.length) tokenLines = tokenLines.slice(0, -1)
       const showEffort = !nano && (!mini || visible((name ?? '') + ' · ' + (effort ?? '--')) <= sideW)
-      const timeText = !t ? (mini ? '요청 없음' : '아직 요청이 없어요') : (working || tight ? '' : '지난 요청 ') + t.time
+      const timeText = !t ? (mini ? '요청 없음' : '아직 요청이 없어요') : (working || tight ? '' : '지난 요청 ') + (working && tokenLines.length ? t.clock : t.time)
       const timeLine = mini && visible(timeText) > sideW ? timeText.split(' · ')[0] : timeText
       const card = Box({
         key: 'terry-card',
