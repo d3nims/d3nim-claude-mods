@@ -278,4 +278,4 @@ claude plugin update usage-meter@d3nim-claude-mods
 - 카드: 남은 양 15% 미만일 때만 한 줄 (사용자 결정: 늘 띄우지 않음), 8% 미만 빨강. 폭에 맞춰 `메모리 1.4/31GB 남음 (5%)  Claude 2개 0.8GB` → … → `램 1.4G 5%` → `램 5%`. 테리만 들어가는 폭이면 사용량 줄 밑. 이모지·· 없음(부분 다시 그리기 밀림).
 - `/terry mem`: 제목 + 들여 쓴 줄 + 빈 줄로 나눔(사용자 요청). 같은 이름 프로세스는 묶고 0.05GB 미만은 뺌. '앞으로': 남은 비율별로 무엇이 꺼질 수 있는지 (Linux 는 가장 큰 프로세스를 커널이, Windows 는 메모리 부족 경고 뒤 더 달라는 프로그램).
 - `/terry mem clean`: `~/.claude/sessions/<pid>.json`(이름·status idle/busy·statusUpdatedAt)으로 다른 Claude 세션을 찾음. 이 세션은 제외(Linux 는 /proc/self/stat 의 pid, Windows 는 세션 id). 추천: 30분 넘게 쉼, 같은 대화가 둘 이상인데 5분 넘게 쉼, 부모가 죽은 MCP 도우미. 작업 중은 추천 안 함. `$.ui.ask` multiSelect 창(4개까지, 명령이 끝난 뒤 띄움) + 번호/`추천`. 끄기 직전 pid·종류·세션 id 다시 확인, Linux `kill`, Windows `taskkill /F`.
-
+- 1.2.16: 후보가 하나면 창을 안 띄우던 것(창은 선택지 둘 이상) → '끄기 / 그대로 두기' 창. Windows 에서 세션 둘만 띄우면 늘 하나라 창이 안 떴다 (사용자 확인).

@@ -879,7 +879,7 @@ async function memClean($, args) {
   const list = await cleanCandidates($)
   if (!list) return memSource === null ? '이 PC 에선 메모리를 읽지 못해요 (WSL·Linux·Windows 만 돼요)' : '메모리를 읽지 못했어요'
   cleanList = list
-  if (list.length >= 2) void askClean($, list)
+  if (list.length) void askClean($, list)
   return cleanText(list, await topProcs($))
 }
 // 목록을 보여 준 뒤 여러 개 고르는 창도 띄운다 (창은 4개까지: 추천부터. 나머지는 번호로).
@@ -889,7 +889,10 @@ async function askClean($, list) {
     await $.clock.sleep(500)
     const shown = list.slice(0, 4)
     const labels = shown.map((c, i) => `${i + 1}. ${c.label.replace(/,/g, ' ')} ${gb(c.bytes)}GB${c.rec ? ' (추천)' : ''}`)
-    const answer = await $.ui.ask('메모리를 비우려면 끌 것을 고르세요 (여러 개 가능)?', { options: labels, header: '메모리 정리', multiSelect: true })
+    // 후보가 하나면 (Windows 에서 세션 둘만 띄운 경우 등) 끌지 말지 고르는 창: 창은 선택지가 둘 이상이어야 한다
+    const answer = shown.length === 1
+      ? await $.ui.ask(`${shown[0].label} 를 끌까요?`, { options: [labels[0] + ' 끄기', '그대로 두기'], header: '메모리 정리' })
+      : await $.ui.ask('메모리를 비우려면 끌 것을 고르세요 (여러 개 가능)?', { options: labels, header: '메모리 정리', multiSelect: true })
     if (cleanList !== list) return // 그 사이 번호로 이미 골랐다
     const nums = [...String(answer).matchAll(/(?:^|,)\s*(\d+)\./g)].map(m => Number(m[1]))
     const picks = nums.map(n => shown[n - 1]).filter(Boolean)
