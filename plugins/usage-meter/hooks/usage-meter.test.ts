@@ -369,7 +369,7 @@ test("auto-model's in-work compact hint says how full the conversation is", asyn
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'terry', args: '' } as never)
   const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 160 } as never })
-  expect(await ui.find({ type: 'Text', text: /📦 대화 86% 찼어요/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /대화 86% 찼어요/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'ah-skip' } as never)).toBeDefined()
   await ui.unmount()
 })

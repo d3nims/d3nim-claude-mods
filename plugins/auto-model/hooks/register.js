@@ -863,6 +863,19 @@ export function register(on) {
     return r
   })
 
+  // /clear: 같은 프로세스가 새 세션으로 이어지고 session.start 는 안 돈다. 지운 대화의 크기·시각을 들고 있으면
+  // 새 대화의 첫 답 전까지 '캐시 식음 · N만 토큰' 이 지운 대화 기준으로 뜬다 → 버린다
+  on('session.end', async ($, e, next) => {
+    const r = await next(e)
+    if (e.reason === 'clear') {
+      last = null
+      for (const k of Object.keys(warmAt)) delete warmAt[k]
+      dismissedFor = null
+      await clearHint($)
+    }
+    return r
+  })
+
   // /resume · fork 로 다른 대화를 이어받으면, 엔진이 그 대화의 마지막 응답 뒤 지난 시간과 크기를 알려 준다:
   // 그걸로 캐시가 따뜻한지 추정한다 (없으면 모르는 채로 = 그대로)
   on('classic.SessionStart', async ($, e, next) => {

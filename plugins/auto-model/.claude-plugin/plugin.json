@@ -1,6 +1,6 @@
 {
   "name": "auto-model",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "description": "요청마다 맞는 모델이 처리해요. 메인(Opus)은 그대로 두고 단순한 일은 Sonnet·Haiku 일꾼에게 맡겨서, 기억(프롬프트 캐시)을 안 깨고 사용료를 아껴요. 쉬고 온 뒤 압축은 Sonnet 요약, 아낀 만큼 테리 카드에 표시",
   "author": {
     "name": "d3nim"

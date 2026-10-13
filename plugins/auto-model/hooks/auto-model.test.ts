@@ -56,6 +56,19 @@ test('typing a prompt clears the hint, and so does a new model call', async ($, 
   expect(hint()).toBeNull()
 })
 
+test('/clear drops the cleared conversation: no hint from its size until the new one answers', async ($, on) => {
+  const { clock } = engine(on)
+  on('session.end', (_: unknown, e: any) => ({ sessionId: e.sessionId }))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await step($)
+  await clock.advance(61 * MIN)
+  expect(hint()?.tokens).toBe(200000)
+  await $.session.end({ reason: 'clear', sessionId: 's1' } as never)
+  expect(hint()).toBeNull()
+  await clock.advance(120 * MIN)
+  expect(hint()).toBeNull() // nothing answered since the clear
+})
+
 test('a short conversation, a subagent call or /auto-model off gets no hint', async ($, on) => {
   const { clock, setTokens } = engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })

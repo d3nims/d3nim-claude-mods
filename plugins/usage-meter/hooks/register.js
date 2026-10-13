@@ -614,19 +614,21 @@ function hintRow($, hint, Box, Text, Button, width) {
     return text ? Text({ key: 'auto-hint', color: '#ffd166', children: [text] }) : null
   }
   if (!hint) return null
+  // 이모지와 · 없이: 분이 바뀔 때만 몇 칸 다시 그리는 줄이라, 폭을 터미널과 다르게 세는 화면(Windows, SSH 너머 ConPTY)에서
+  // '⏰14시간 341 쉬어' 처럼 글자가 밀리고 지난 글자가 남았다 (마우스를 움직여 통째로 다시 그리면 바로잡힘)
   let long, mid, short, later
   if (hint.kind === 'warm') {
     // 작업 중 대화가 많이 참: 지금은 캐시가 살아 있어 원래 모델이 싸게 압축한다
-    long = `📦 대화 ${hint.percent}% 찼어요 · 지금은 기억이 살아 있어서 싸게 압축돼요 `
-    mid = `📦 대화 ${hint.percent}% · 지금 압축하면 싸요 `
-    short = `📦 ${hint.percent}% · 압축? `
+    long = `대화 ${hint.percent}% 찼어요 - 지금은 기억이 살아 있어서 싸게 압축돼요 `
+    mid = `대화 ${hint.percent}% - 지금 압축하면 싸요 `
+    short = `대화 ${hint.percent}% - 압축? `
     later = '나중에'
   } else {
     const idle = hint.idleMinutes >= 60 ? Math.floor(hint.idleMinutes / 60) + '시간' + (hint.idleMinutes % 60 ? ' ' + (hint.idleMinutes % 60) + '분' : '') : hint.idleMinutes + '분'
     const usd = '$' + (hint.rewriteUsd >= 10 ? Math.round(hint.rewriteUsd) : hint.rewriteUsd.toFixed(1))
-    long = `⏰ ${idle} 쉬어서 캐시가 식었어요 · 다음 요청이 대화 ${manTokens(hint.tokens)} 토큰을 다시 써요 (API 환산 약 ${usd}) · 압축하면 그 뒤 요청이 가벼워져요 `
-    mid = `⏰ ${idle} 쉬어 캐시 식음 · 다음 요청에 ${manTokens(hint.tokens)} 토큰 다시 씀 (약 ${usd}) `
-    short = `⏰ 캐시 식음 · ${manTokens(hint.tokens)} 토큰 다시 씀 `
+    long = `${idle} 쉬어서 캐시가 식었어요 - 다음 요청이 대화 ${manTokens(hint.tokens)} 토큰을 다시 써요 (API 환산 약 ${usd}) - 압축하면 그 뒤 요청이 가벼워져요 `
+    mid = `${idle} 쉬어 캐시 식음 - 다음 요청에 ${manTokens(hint.tokens)} 토큰 다시 씀 (약 ${usd}) `
+    short = `캐시 식음 - ${manTokens(hint.tokens)} 토큰 다시 씀 `
     later = '계속'
   }
   const room = width - (Button ? 16 : 0)

@@ -238,6 +238,8 @@ claude plugin update usage-meter@d3nim-claude-mods
 - 작업 중(warm) 카드 [압축]과 Sonnet 이 실패해 원래 모델로 넘어간 압축에는 '모든 사용자 메시지' 메시지를 더 붙이지 않는다. 플러그인이 만든 메시지는 화면에 전부 보이고 숨길 방법이 Mods API(2.1.296)에 없어서, 압축 뒤 긴 목록이 화면을 덮었다. core 요약(handle 있는 메시지)은 "압축됨" 한 줄로만 보인다.
 - 쉬고 와서(cold) Sonnet 요약은 그대로 원문 목록 포함: 요약 글 자체를 플러그인이 넣어야 해서 어차피 화면에 보이고, 원문 목록은 Sonnet 의 승인 범위 일반화를 막으려고 붙인 것.
 - Windows 'dk' 터미널에서 카드 버튼([압축]·[계속])에 포인터를 올려도 반응 없음 (2026-10-12 사용자 확인). 그 터미널에서 마우스 입력이 안 들어오는 것으로 보임 (미확인) → `/terry compact` 로 대신.
+  - 원인 (2026-10-13): 버튼 클릭은 전체 화면 렌더러에서만 들어온다. Windows 설치는 전체 화면 제안을 세 번 받고 답하지 않아(`~/.claude.json` 의 `fullscreenUpsellSeenCount: 3`) 기본 렌더러로 남았고, WSL 은 전체 화면이었다. Windows `~/.claude/settings.json` 에 `"tui": "fullscreen"` 을 넣음 (세션 재시작 뒤 적용, `/tui default` 로 되돌림).
+  - 단, 회사에서 Tailscale SSH 로 집 Windows 세션을 쓸 때는 Claude Code 가 전체 화면을 스스로 끈다("Windows over SSH (ConPTY re-rendering)", `CLAUDE_CODE_NO_FLICKER=1` 로만 강제). 그 경우 버튼은 안 되고 `/terry compact`.
 
 ### usage-meter 1.2.13 · 검사기 (2026-10-12): 달리기 목 앞, 견종 실험에서 나온 검사
 - 달리기 #1·#2: 사용자가 목 앞(턱과 목이 만나는 곳)을 채움(2칸·4칸). #3 의 + 모양 코를 #2 와 같은 3+2칸으로(편집기 db 도 고침).
@@ -266,3 +268,7 @@ claude plugin update usage-meter@d3nim-claude-mods
 - ~~git init → private repo → push~~ 완료: https://github.com/d3nims/d3nim-claude-mods (main). `.gitattributes`로 `* text=auto eol=lf`. 작성자는 저장소 로컬 git 설정을 따름.
 - 동료 설치 테스트: `claude plugin marketplace add d3nims/d3nim-claude-mods` → `claude plugin install usage-meter@d3nim-claude-mods` (2026-10-05 공개 저장소로 전환, 로그인 없이 설치 가능)
 - 안전장치 mod(2순위)
+
+### auto-model 0.5.9 · usage-meter 1.2.14 (2026-10-13): /clear 뒤 크기, 안내 줄 깨짐
+- auto-model: /clear 는 같은 프로세스가 새 세션으로 이어지고 session.start 가 안 돈다 → 지운 대화의 크기·시각(last)을 들고 있어 새 대화 첫 답 전까지 지운 대화 기준 '캐시 식음' 이 뜰 수 있었다. 이제 session.end(reason 'clear') 에서 버림. (대표님 PC 의 '61만 캐시 식음' 은 /clear 뒤 새벽 루프가 같은 대화에 쌓은 크기로 보임: 그 세션 `/context` 로 확인 안내)
+- usage-meter: 압축 안내 줄에서 ⏰·📦 와 · 를 뺌. 분이 바뀔 때만 몇 칸 다시 그리는 줄이라 SSH 너머 Windows 에서 '⏰14시간 341 쉬어' 처럼 밀리고 지난 글자가 남았다 (마우스를 움직이면 바로잡힘 = 부분 다시 그리기 문제).
