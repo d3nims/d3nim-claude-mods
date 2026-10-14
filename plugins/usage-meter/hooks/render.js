@@ -255,9 +255,9 @@ const palette = (pct, h) => {
   return mix(ramp(BLUE, Math.round(Math.min(1, Math.max(0, h)) * HEAT_STEPS) / HEAT_STEPS), ramp(HOT, Math.round(Math.min(1, Math.max(0, h)) * HEAT_STEPS) / HEAT_STEPS), hot)
 }
 
-/** The colour of a percentage in text (hex string): blue, amber, red. */
+/** The colour of a percentage in text (hex string): blue, amber from 70%, deep orange from 85% (auto-model's warning line). */
 export function stateColor(pct) {
-  return pct >= 90 ? '#ff783c' : pct >= 80 ? '#ffbe50' : '#50aaff'
+  return pct >= 85 ? '#ff783c' : pct >= 70 ? '#ffbe50' : '#50aaff'
 }
 
 // ---- One fire per gauge ----------------------------------------------------------------------------------

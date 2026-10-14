@@ -280,3 +280,4 @@ claude plugin update usage-meter@d3nim-claude-mods
 - `/terry mem clean`: `~/.claude/sessions/<pid>.json`(이름·status idle/busy·statusUpdatedAt)으로 다른 Claude 세션을 찾음. 이 세션은 제외(Linux 는 /proc/self/stat 의 pid, Windows 는 세션 id). 추천: 30분 넘게 쉼, 같은 대화가 둘 이상인데 5분 넘게 쉼, 부모가 죽은 MCP 도우미. 작업 중은 추천 안 함. `$.ui.ask` multiSelect 창(4개까지, 명령이 끝난 뒤 띄움) + 번호/`추천`. 끄기 직전 pid·종류·세션 id 다시 확인, Linux `kill`, Windows `taskkill /F`.
 - 1.2.16: 후보가 하나면 창을 안 띄우던 것(창은 선택지 둘 이상) → '끄기 / 그대로 두기' 창. Windows 에서 세션 둘만 띄우면 늘 하나라 창이 안 떴다 (사용자 확인).
 - 1.2.17: 응답 중 카드에 '출력' 이 시간 줄과 토큰 줄에 두 번 → 토큰 줄이 보이면 시간 줄엔 시간만 (mini·nano 는 그대로). 토큰 수 백만부터 M ('캐시 15046k' → '15M').
+- 1.2.18: 사용량 % 색 기준 80·90% → 70%(주황)·85%(진한 주황), 넓은 화면 이름 옆 '!' 도 85%부터. 80·90% 알림은 그대로. Windows 카드 버튼이 안 눌린 건 settings.json 의 tui 가 다시 default 로 돌아가 있어서였음 (fullscreen 으로 되돌림; SSH 너머로는 마우스가 안 올 수 있어 /terry compact).

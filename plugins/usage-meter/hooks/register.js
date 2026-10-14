@@ -1446,7 +1446,7 @@ export function register(on) {
     runAnim($, e.requestId, 'band', band.columns, band.rows, () => band.cells(values(), nowMs() / 1000))
     const labels = BAND_NAMES.map((name, i) => {
       const pct = vals[i] ?? 0
-      const text = name + ' ' + show(vals[i]) + (pct >= 90 ? ' !' : '')
+      const text = name + ' ' + show(vals[i]) + (pct >= 85 ? ' !' : '')
       const reset = resetText(i)
       const room = band.widths[i] + BAND_GAP - 1
       const extra = reset && visible(text + ' · ' + reset) <= room ? ' · ' + reset : ''
