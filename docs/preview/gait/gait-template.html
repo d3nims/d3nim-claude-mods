@@ -1,0 +1,258 @@
+<title>테리 걸음 측정</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 라이트테이블 위 필름 노트: 한 열 읽기, 애니메이션 타일은 격자로 */
+:root {
+  --bg: #eef0ee; --panel: #fbfcfb; --fg: #1f2623; --muted: #5d6a64; --line: #d3d9d5;
+  --accent: #2f6f8f; --accent-soft: #d9e8ef; --warn: #b5642a; --ok: #3d7a4f; --stage: #26313a;
+  --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #161b1a; --panel: #1e2523; --fg: #e3e8e5; --muted: #98a59f; --line: #33403b;
+  --accent: #7fb6d1; --accent-soft: #23343c; --warn: #e09a62; --ok: #7cc192; --stage: #0f1417; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #161b1a; --panel: #1e2523; --fg: #e3e8e5; --muted: #98a59f; --line: #33403b;
+  --accent: #7fb6d1; --accent-soft: #23343c; --warn: #e09a62; --ok: #7cc192; --stage: #0f1417; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.65; }
+.wrap { max-width: 920px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 56px; display: grid; gap: 36px; }
+h1 { font-size: 1.9rem; line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-size: 1.25rem; margin: 0 0 6px; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--muted); }
+.eyebrow { font-family: var(--mono); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+section { display: grid; gap: 14px; min-width: 0; }
+.verdict { background: var(--accent-soft); border-radius: 10px; padding: 16px 18px; display: grid; gap: 6px; }
+.verdict b { color: var(--fg); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; min-width: 0; }
+figure canvas { width: 100%; aspect-ratio: 4 / 3; background: var(--stage); display: block; image-rendering: pixelated; }
+figure canvas.photo { image-rendering: auto; }
+figcaption { padding: 8px 12px 10px; font-size: .86rem; display: grid; gap: 2px; }
+figcaption small { color: var(--muted); font-family: var(--mono); font-size: .75rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button { font: inherit; font-size: .86rem; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: .88rem; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-weight: 500; color: var(--muted); font-size: .8rem; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--accent); vertical-align: middle; margin-right: 8px; }
+tr.terry td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.bar.w { background: var(--warn); }
+.est { color: var(--muted); font-size: .75rem; }
+.findings { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.findings li { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; }
+.pill { font-family: var(--mono); font-size: .72rem; padding: 2px 8px; border-radius: 999px; white-space: nowrap; margin-top: 3px; }
+.pill.fix { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.pill.good { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.strip div { flex: 0 0 auto; display: grid; gap: 2px; justify-items: center; font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+.strip canvas { width: 76px; height: 61px; background: var(--stage); border-radius: 6px; image-rendering: pixelated; }
+.strip .up { color: var(--warn); font-weight: 500; }
+.options { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.opt { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
+.opt h3 { margin: 0; font-size: 1rem; }
+.opt p { color: var(--muted); font-size: .9rem; }
+.src { font-size: .85rem; color: var(--muted); display: grid; gap: 4px; }
+.src a { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .motion-note { display: block; } }
+.motion-note { display: none; color: var(--muted); font-size: .85rem; }
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:10px">
+    <div class="eyebrow">gait study · 2026-10-14</div>
+    <h1>테리 걸음 측정</h1>
+    <p class="lede">실제 개 사진(1887년 Muybridge)과 공개 도트 개 두 마리를 프레임마다 재서 테리의 걷기·달리기와 비교했어요. 그림은 하나도 가져오지 않았고 움직임 숫자만 뽑았어요.</p>
+  </header>
+
+  <div class="verdict">
+    <b>걷기는 지금 그대로 괜찮고, 달리기는 몸과 머리가 위아래로 거의 안 움직여요.</b>
+    <p>실제 개는 달릴 때 등이 몸높이의 약 15%만큼 오르내리는데 테리는 3%예요. B안은 몸을 통째로 올렸다 내렸어요. 사진을 다시 재 보니 실제 개는 엉덩이와 어깨가 <b>다른 박자로</b> 움직여요(흔들목마처럼). 그걸 넣은 C안을 바로 아래에 만들었어요.</p>
+  </div>
+
+  <section>
+    <div class="eyebrow">C안 미리보기 · 새로 만듦</div>
+    <h2>엉덩이와 어깨가 번갈아 들리는 흔들림</h2>
+    <p class="lede">사진 8장에서 엉덩이·어깨 윗선을 열마다 따서 다시 쟀어요. 오르내리는 폭은 B안과 거의 같았고, 차이는 <b>박자</b>였어요.</p>
+    <ul class="findings">
+      <li><span class="pill fix">C안에 넣은 것</span><p><b>뒷다리로 박찰 때(2~3번)는 엉덩이가 높고, 몸을 쭉 뻗을 때(6~7번)는 엉덩이가 내려가고 어깨·머리가 들려요.</b> 사진에서 앞뒤 높이 차이가 몸높이의 약 13%만큼 바뀌어요(테리로 약 4도트). B안은 몸을 통째로 움직여서 이 기울기가 0이었어요.</p></li>
+      <li><span class="pill fix">C안에 넣은 것</span><p><b>머리는 어깨보다 조금 더 크게, 조금 늦게 움직여요.</b> 뻗을 때 가장 높고, 앞발로 디딘 뒤(10번) 가장 낮아요.</p></li>
+    </ul>
+    <div class="controls">
+      <button class="play2" aria-pressed="true">재생 중</button>
+      <button class="slow2" aria-pressed="false">4배 느리게</button>
+    </div>
+    <div class="tiles">
+      <figure><canvas id="c3-now" width="200" height="150"></canvas><figcaption>지금<small>몸이 거의 안 움직임</small></figcaption></figure>
+      <figure><canvas id="c3-b" width="200" height="150"></canvas><figcaption>B안<small>몸 전체가 같이 오르내림</small></figcaption></figure>
+      <figure><canvas id="c3-c" width="200" height="150"></canvas><figcaption>C안<small>엉덩이·어깨·머리가 각자 박자대로</small></figcaption></figure>
+    </div>
+    <div class="strip" id="strip-c"></div>
+    <p class="est">점검 도구: 12장 중 11장 통과. 2번에 '엉덩이 튀어나옴 11칸(완성본 최대 10)'이 1건 나왔어요. 엉덩이 모양은 원본을 2줄 올린 것 그대로이고, 앞쪽이 덜 올라가서 도구가 재는 기준 줄이 바뀐 탓이에요. 크게 봤을 때 튀는 곳은 못 찾았어요. 1.5배로 키운 버전도 만들어 봤는데, 한 장에 1도트 넘게 움직이지 않게 하면 거의 차이가 없고 배에 파인 곳만 생겨서 뺐어요.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">달리기 나란히</div>
+    <h2>네 마리를 같이 돌려 보기</h2>
+    <div class="controls">
+      <button id="play" aria-pressed="true">재생 중</button>
+      <button id="slow" aria-pressed="false">4배 느리게</button>
+    </div>
+    <p class="motion-note">움직임 줄이기 설정이 켜져 있어 멈춘 상태로 시작해요. 재생을 눌러 주세요.</p>
+    <div class="tiles">
+      <figure><canvas id="c-muy" class="photo" width="276" height="207"></canvas><figcaption>실제 개 'Dread' 질주<small>사진 8장 · 보기용 70ms</small></figcaption></figure>
+      <figure><canvas id="c-husky" width="240" height="180"></canvas><figcaption>허스키 도트 달리기<small>5장 · 시간 정보 없음, 100ms</small></figcaption></figure>
+      <figure><canvas id="c-wolf" width="264" height="198"></canvas><figcaption>늑대 도트 달리기<small>5장 · 130ms (원본 GIF)</small></figcaption></figure>
+      <figure><canvas id="c-terry" width="200" height="150"></canvas><figcaption>테리 달리기 (지금)<small>12장 · 40ms</small></figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">잰 숫자</div>
+    <h2>달리기 한 바퀴 동안 얼마나 움직이나</h2>
+    <p class="lede">출렁임은 한 바퀴 동안 가장 높을 때와 낮을 때의 차이를 몸높이(땅~머리 꼭대기)로 나눈 값이에요.</p>
+    <div class="tablebox"><table>
+      <thead><tr><th>대상</th><th>등 출렁임</th><th>코 출렁임</th><th>몸 길이 변화</th><th>공중 프레임</th></tr></thead>
+      <tbody id="tbl"></tbody>
+    </table></div>
+    <p class="est">실제 개 값: 등은 사진에서 몸 윤곽을 따서 잰 값이고, 코와 몸 길이는 격자를 대고 눈으로 잰 대략값이에요. 사진 8장이 한 바퀴 전체인지는 원본에 표시가 없어요.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">찾은 것</div>
+    <ul class="findings">
+      <li><span class="pill good">B·C안에서 반영</span><p><b>(지금 테리) 달리기에서 몸이 거의 안 떠요.</b> 공중 프레임(1, 7번)에서 다리만 접히고 등 높이는 그대로예요. 실제 개는 뒷다리로 박차고 웅크린 채 떠 있을 때 등이 가장 높고, 앞발이 땅에 닿을 때 가장 낮아요.</p></li>
+      <li><span class="pill good">B·C안에서 반영</span><p><b>(지금 테리) 머리가 고정돼 있어요.</b> 실제 개는 앞발로 디딜 때 머리가 충격을 받으며 내려가요(코 기준 약 23%). 테리는 6%, 도트 샘플도 11~15%는 움직여요.</p></li>
+      <li><span class="pill good">이미 좋음</span><p><b>몸이 늘었다 줄었다 하는 건 충분해요.</b> 테리 1.42배로, 실제 개(약 1.25배)보다 크고 허스키 도트(1.44배)와 비슷해요. 도트에서는 과장하는 편이 잘 읽혀요.</p></li>
+      <li><span class="pill good">이미 좋음</span><p><b>걷기는 문제없어요.</b> 발이 늘 2~3개 땅에 닿아 있어요(걷기의 조건). 몸을 고정하는 건 허스키 도트도 같아요. 원하면 1도트 오르내림을 넣을 수는 있어요.</p></li>
+      <li><span class="pill good">이미 좋음</span><p><b>프레임은 테리가 훨씬 촘촘해요.</b> 테리는 12~16장을 40ms씩 보여주고, 샘플들은 5~6장을 100~130ms씩 보여줘요.</p></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="eyebrow">B안 미리보기</div>
+    <h2>디딤다리를 굽혀서 몸과 머리 오르내리기</h2>
+    <p class="lede">12장 전체에 높이 곡선을 줬어요. 뒷다리로 박찰 때(2~3번) 가장 높고, 앞발로 디딜 때(8~10번) 가장 낮아요. 땅에 닿은 다리는 줄을 하나 겹치거나 빼서 늘이고 줄이고, 발끝은 땅에 그대로 둬요. 떠 있는 다리는 몸과 같이 움직여요. 앞발로 디딘 뒤(9~11번)에는 머리를 1도트 더 내려요.</p>
+    <div class="tiles">
+      <figure><canvas id="c-terry-a" width="200" height="150"></canvas><figcaption>지금<small>모든 프레임 같은 높이</small></figcaption></figure>
+      <figure><canvas id="c-terry-b" width="200" height="150"></canvas><figcaption>B안<small>등 9% · 코 18% 오르내림</small></figcaption></figure>
+    </div>
+    <div class="strip" id="strip"></div>
+  </section>
+
+  <section>
+    <div class="eyebrow">다음</div>
+    <div class="options">
+      <div class="opt"><h3>C안 넣기</h3><p>C안이 더 실제 같으면 테리 달리기에 넣고 올려요.</p></div>
+      <div class="opt"><h3>B안 넣기</h3><p>점검 도구 12장 모두 통과했어요. C안이 어색하면 B안으로 가도 돼요.</p></div>
+      <div class="opt"><h3>폭 조절</h3><p>지금은 몸 3도트, 머리 4도트 폭이에요. 실제 개(등 15%)보다 조금 작게 잡았어요. 더 크게나 작게 바꿀 수 있어요.</p></div>
+      <div class="opt"><h3>걷기 1도트 오르내림</h3><p>같은 방식으로 걷기에도 넣을 수 있어요. 없어도 이상하지 않아서 선택 사항이에요.</p></div>
+    </div>
+  </section>
+
+  <section class="src">
+    <div class="eyebrow">출처와 재는 법</div>
+    <p>실제 개: Eadweard Muybridge, <i>Animal Locomotion</i> Plate 707 "'Dread' galloping" (1887, 공개 도메인). <a href="https://commons.wikimedia.org/wiki/File:Dog_Dread_galloping_(rbm-QP301M8-1887-707).jpg">Wikimedia Commons</a></p>
+    <p>허스키: rmazanek, "dog 3" (CC0). <a href="https://opengameart.org/content/dog-3">OpenGameArt</a> · 늑대: alizard, "pixel wolf" (CC0). <a href="https://opengameart.org/content/pixel-wolf">OpenGameArt</a></p>
+    <p>도트는 투명하지 않은 칸을 몸으로 보고, 맨 아래 줄에 닿은 칸 묶음을 발로, 몸 뒤쪽 25~45% 칸의 가장 높은 점을 등으로, 맨 앞 칸의 높이를 코로 쟀어요. 왼쪽을 보는 샘플은 뒤집어서 쟀어요.</p>
+  </section>
+</div>
+
+<script>
+const A = /*ASSETS*/null;
+const COLORS = {W:'#f2f2f2',S:'#6e6e6e',L:'#c8c8c8',O:'#b0b0b0',D:'#464646',m:'#8c8c8c',E:'#141414',N:'#1e1e1e',T:'#e29ca8',t:'#ec7080',M:'#702432',P:'#c44e62'};
+const ROWS = [
+  {name:'실제 개 (사진)', back:15, nose:23, stretch:'≈1.25', flight:'있음', est:true},
+  {name:'허스키 도트', back:14, nose:11, stretch:'1.44', flight:'1장'},
+  {name:'늑대 도트', back:7, nose:15, stretch:'1.14', flight:'측정 안 됨'},
+  {name:'테리 (지금)', back:3, nose:6, stretch:'1.42', flight:'2장 (1, 7번)', terry:true},
+  {name:'테리 B안', back:10, nose:19, stretch:'1.42', flight:'2장 (1, 7번)'},
+  {name:'테리 C안 (앞뒤 기울기 4도트)', back:10, nose:19, stretch:'1.42', flight:'2장 (1, 7번)'},
+];
+const tbl = document.getElementById('tbl');
+for (const r of ROWS) {
+  const tr = document.createElement('tr'); if (r.terry) tr.className = 'terry';
+  const bar = (v) => `<span class="bar${r.terry ? ' w' : ''}" style="width:${v * 3}px"></span>${v}%${r.est ? '<span class="est"> 대략</span>' : ''}`;
+  tr.innerHTML = `<td>${r.name}</td><td class="num">${bar(r.back)}</td><td class="num">${bar(r.nose)}</td><td class="num">${r.stretch}배</td><td>${r.flight}</td>`;
+  tbl.appendChild(tr);
+}
+function loadImgs(list) { return Promise.all(list.map(src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.src = src; }))); }
+function drawRows(ctx, rows, dx, dy, k) {
+  for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) {
+    const ch = rows[y][x]; if (ch === '.') continue;
+    ctx.fillStyle = COLORS[ch] || '#ff00ff'; ctx.fillRect(dx + x * k, dy + y * k, k, k);
+  }
+}
+const DY = [0, 1, 2, 2, 1, 1, 0, 0, -1, -1, -1, 0], HEAD = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1];
+const CR = /*CR*/null, CF = /*CF*/null, CH = /*CH*/null;
+let playing = !matchMedia('(prefers-reduced-motion: reduce)').matches, slow = 1;
+const players = [];
+function player(id, n, ms, draw) {
+  const c = document.getElementById(id), ctx = c.getContext('2d'); ctx.imageSmoothingEnabled = false;
+  const p = { i: 0, t: 0, n, ms, draw: (i) => { ctx.clearRect(0, 0, c.width, c.height); draw(ctx, i, c); } };
+  p.draw(0); players.push(p); return p;
+}
+function terryDraw(b) {
+  return (ctx, i, c) => {
+    const k = 4, rows = (b === 'c' ? A.terry_run_c : b ? A.terry_run_b : A.terry_run)[i], ox = (c.width - 50 * k) / 2, oy = (c.height - 40 * k) / 2 + 8;
+    ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(0, oy + 36 * k, c.width, 1);
+    drawRows(ctx, rows, ox, oy, k);
+  };
+}
+function imgDraw(imgs, k, smooth) {
+  return (ctx, i, c) => {
+    const im = imgs[i]; ctx.imageSmoothingEnabled = !!smooth;
+    const w = im.width * k, h = im.height * k; ctx.drawImage(im, (c.width - w) / 2, (c.height - h) / 2, w, h);
+  };
+}
+Promise.all([loadImgs(A.muy), loadImgs(A.husky_run), loadImgs(A.wolf_run)]).then(([muy, husky, wolf]) => {
+  player('c-muy', 8, 70, imgDraw(muy, 1, true));
+  player('c-husky', 5, 100, imgDraw(husky, 3));
+  player('c-wolf', 5, 130, imgDraw(wolf, 3));
+  player('c-terry', 12, 40, terryDraw(false));
+  player('c-terry-a', 12, 40, terryDraw(false));
+  player('c-terry-b', 12, 40, terryDraw(true));
+  player('c3-now', 12, 40, terryDraw(false));
+  player('c3-b', 12, 40, terryDraw(true));
+  player('c3-c', 12, 40, terryDraw('c'));
+  const stripC = document.getElementById('strip-c');
+  const arrow = (v) => v > 0 ? '↑' + v : v < 0 ? '↓' + -v : '0';
+  A.terry_run_c.forEach((rows, i) => {
+    const d = document.createElement('div'), c = document.createElement('canvas'); c.width = 76 * 2; c.height = 61 * 2;
+    const ctx = c.getContext('2d'); drawRows(ctx, rows, 3, 4, 3);
+    d.appendChild(c); const s = document.createElement('span');
+    s.textContent = `${i}번 엉덩이${arrow(CR[i])} 어깨${arrow(CF[i])} 머리${arrow(CH[i])}`;
+    if (CR[i] !== CF[i]) s.className = 'up';
+    d.appendChild(s); stripC.appendChild(d);
+  });
+  const strip = document.getElementById('strip');
+  A.terry_run_b.forEach((rows, i) => {
+    const d = document.createElement('div'), c = document.createElement('canvas'); c.width = 76 * 2; c.height = 61 * 2;
+    const ctx = c.getContext('2d'); drawRows(ctx, rows, 3, 4, 3);
+    const tot = DY[i] - HEAD[i];
+    d.appendChild(c); const s = document.createElement('span'); s.textContent = `${i}번 몸${DY[i] > 0 ? '↑' + DY[i] : DY[i] < 0 ? '↓' + -DY[i] : ' 0'}${HEAD[i] ? ' 머리↓' + (HEAD[i] - DY[i]) : ''}`; if (DY[i] || HEAD[i]) s.className = 'up';
+    d.appendChild(s); strip.appendChild(d);
+  });
+  let last = performance.now();
+  function tick(now) {
+    const dt = now - last; last = now;
+    if (playing) for (const p of players) { p.t += dt; const step = p.ms * slow; while (p.t >= step) { p.t -= step; p.i = (p.i + 1) % p.n; p.draw(p.i); } }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+});
+const playBtns = [document.getElementById('play'), ...document.querySelectorAll('.play2')];
+const slowBtns = [document.getElementById('slow'), ...document.querySelectorAll('.slow2')];
+function syncBtns() {
+  for (const b of playBtns) { b.setAttribute('aria-pressed', playing); b.textContent = playing ? '재생 중' : '멈춤'; }
+  for (const b of slowBtns) b.setAttribute('aria-pressed', slow > 1);
+}
+for (const b of playBtns) b.onclick = () => { playing = !playing; syncBtns(); };
+for (const b of slowBtns) b.onclick = () => { slow = slow > 1 ? 1 : 4; syncBtns(); };
+syncBtns();
+</script>

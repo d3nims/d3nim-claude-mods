@@ -5,7 +5,7 @@ const OPUS = 'claude-opus-5-5'
 // The engine beneath, with a small file system so the file log can be read back
 function engine(on: any, files: Record<string, string>) {
   mock.store(on)
-  mock.clock(on)
+  const clock = mock.clock(on)
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: {} }))
   on('prompt.submit', (_: unknown, e: any) => e)
@@ -20,13 +20,16 @@ function engine(on: any, files: Record<string, string>) {
     }
   })
   on('turn.complete', (_: unknown, e: any) => ({ text: e.answer }))
+  on('tool.call', () => ({ result: 'ok', isError: false }))
+  return clock
 }
 
 let n = 0
-async function turn($: any, text: string) {
+async function turn($: any, text: string, tools: any[] = []) {
   await $.prompt.submit({ text } as never)
   const id = 't' + ++n
   for await (const _ of $.turn.step({ turnId: id, index: 0, model: OPUS, messageCount: 3 })) void _
+  for (const t of tools) await $.tool.call(t as never)
   await $.turn.complete({ turnId: id, answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' } as never)
 }
 const rows = (files: Record<string, string>) => {
@@ -82,4 +85,42 @@ test('a reload keeps adding to the same file and keeps this session\'s /auto-mod
   const log = ((await $.command.run({ command: 'auto-model', args: 'log' } as never)) as any).text
   expect(log).toMatch(/첫 요청/)
   expect(log).toMatch(/두 번째 요청/)
+})
+
+test('the file log says which tools each turn used, and adds what came after a shadow decision', async ($, on) => {
+  const files: Record<string, string> = {}
+  const clock = engine(on, files)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'auto-model', args: 'logdir /logs' } as never)
+  await turn($, '이 함수 왜 느려?', [{ tool: 'Bash', command: 'grep -n slow a.js' }, { tool: 'Edit', file_path: 'a.js' }])
+  await clock.advance(61 * 60000)
+  await turn($, '어디까지 했었지?') // a recall question on a cold cache: shadow
+  await turn($, '그럼 다음 단계 구현해줘')
+  const r = rows(files).rows
+  const turns = r.filter(x => x.kind === 'turn')
+  expect(turns[0].tools).toBe('Bash(읽기), Edit')
+  expect(turns[1].shadow).toBe(true)
+  const next = r.find(x => x.kind === 'next')
+  expect(next.turnId).toBe(turns[1].turnId)
+  expect(next.rule).toBe('heavy')
+})
+
+test('/auto-model word shows candidates from what turns turned out to be, and add puts a word into the rules', async ($, on) => {
+  const files: Record<string, string> = {}
+  engine(on, files)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const reads = [1, 2, 3, 4].map(i => ({ tool: 'Bash', command: 'cat f' + i }))
+  await turn($, '국장 어떰', reads) // four tools: heavy, though the rules did not see it (three short reads would be a worker job)
+  await turn($, '해외 어떰', reads)
+  let text = ((await $.command.run({ command: 'auto-model', args: 'word' } as never)) as any).text
+  expect(text).toMatch(/무거운 일 후보: '어떰' \(놓친 문장 2번\)/)
+  expect(((await $.command.run({ command: 'auto-model', args: 'log' } as never)) as any).text).toMatch(/단어 후보/)
+  text = ((await $.command.run({ command: 'auto-model', args: 'word add heavy 어떰' } as never)) as any).text
+  expect(text).toMatch(/'어떰' 이\(가\) 든 요청을 무거운 일/)
+  text = ((await $.command.run({ command: 'auto-model', args: 'word' } as never)) as any).text
+  expect(text).toMatch(/무거운 일: '어떰'/)
+  expect(text).not.toMatch(/무거운 일 후보/)
+  await $.command.run({ command: 'auto-model', args: 'word remove heavy 어떰' } as never)
+  text = ((await $.command.run({ command: 'auto-model', args: 'word' } as never)) as any).text
+  expect(text).toMatch(/무거운 일: 없음/)
 })

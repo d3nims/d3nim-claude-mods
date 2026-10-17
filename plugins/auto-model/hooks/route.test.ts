@@ -9,7 +9,7 @@ const SONNET = 'claude-sonnet-5-5'
 function engine(on: any) {
   mock.store(on)
   const clock = mock.clock(on)
-  const world = { answer: 'ok', tokens: 200000, sessionModel: OPUS, asked: [] as string[], texts: [] as string[], route: null as any, spawned: [] as any[] }
+  const world = { answer: 'ok', tokens: 200000, sessionModel: OPUS, asked: [] as string[], texts: [] as string[], route: null as any, spawned: [] as any[], files: {} as Record<string, string>, spawnModel: null as string | null }
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: {} }))
   on('prompt.submit', (_: unknown, e: any) => (world.texts.push(e.text), e))
@@ -25,7 +25,9 @@ function engine(on: any) {
       usage: { model: e.model, input_tokens: 10, cache_read_input_tokens: t - 2010, cache_creation_input_tokens: 1000, output_tokens: 1000 },
     }
   })
-  on('agent.spawn', (_: unknown, e: any) => (world.spawned.push(e), { model: e.model || 'inherit', agentId: 'a1' }))
+  on('agent.spawn', (_: unknown, e: any) => (world.spawned.push(e), { model: world.spawnModel || e.model || 'inherit', agentId: 'a1' }))
+  on('fs.exists', (_: unknown, e: any) => ({ value: e.path in world.files }))
+  on('fs.read', (_: unknown, e: any) => (e.path in world.files ? { value: world.files[e.path] } : { error: 'missing' }))
   return { clock, world }
 }
 
@@ -107,6 +109,29 @@ test('search subagents with no model of their own go to Haiku; a named model is 
   await $.agent.spawn({ prompt: 'p', description: 'search the docs', subagentType: 'general-purpose', model: 'opus' } as never)
   await $.agent.spawn({ prompt: 'p', description: 'write the release notes', subagentType: 'general-purpose' } as never)
   expect(world.spawned.map((s: any) => s.model ?? null)).toEqual(['haiku', 'opus', null])
+})
+
+test('every model runs on its newest version: an old session model, an old model asked for, an old model in the agent file', async ($, on) => {
+  const { world } = await start($, on)
+  world.files['/tmp/.claude/agents/performance-analyst.md'] = '---\nname: performance-analyst\nmodel: claude-opus-4-7\n---\n# body'
+  world.sessionModel = 'claude-opus-4-7'
+  expect(await ask($, world, '이 작업 시작해서 render.js 고쳐줘')).toBe(OPUS)
+  expect(world.route.reason).toMatch(/Opus 4\.7 → 최신 Opus 5\.5/)
+  await $.agent.spawn({ prompt: 'p', description: 'weekly numbers', subagentType: 'performance-analyst' } as never)
+  await $.agent.spawn({ prompt: 'p', description: 'write the notes', subagentType: 'general-purpose', model: 'claude-sonnet-4-6' } as never)
+  await $.agent.spawn({ prompt: 'p', description: 'write the notes', subagentType: 'general-purpose', model: SONNET } as never)
+  expect(world.spawned.map((s: any) => s.model ?? null)).toEqual(['opus', 'sonnet', SONNET])
+  const log = ((await $.command.run({ command: 'auto-model', args: 'log' } as never)) as any).text
+  expect(log).toMatch(/performance-analyst · \(지정 없음\) → opus \(정의는 claude-opus-4-7 → 최신으로\)/)
+})
+
+test('a subagent that still ran on an older model than the main one is marked in the log', async ($, on) => {
+  const { world } = await start($, on)
+  world.spawnModel = 'claude-opus-4-7' // the engine ignores the override
+  await ask($, world, '이 작업 시작해서 render.js 고쳐줘')
+  await $.agent.spawn({ prompt: 'p', description: 'weekly numbers', subagentType: 'performance-analyst' } as never)
+  const log = ((await $.command.run({ command: 'auto-model', args: 'log' } as never)) as any).text
+  expect(log).toMatch(/performance-analyst · \(지정 없음\) → claude-opus-4-7 · ⚠ 메인보다 옛 모델/)
 })
 
 test('with no model response seen yet (a fresh start or a reload) nothing is switched, however light the prompt', async ($, on) => {

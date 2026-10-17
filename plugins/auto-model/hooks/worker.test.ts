@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import { missedWorkerOf, promptHead, taskOf } from './route.js'
+import { isReadOnlyCommand, missedWorkerOf, outcomeOf, promptHead, ruleOf, setExtraWords, taskOf, wordCandidates, wordsOf } from './route.js'
 
 const OPUS = 'claude-opus-5-5'
 
@@ -109,11 +109,15 @@ test('making something is not a worker job unless it names where and what: featu
   expect(taskOf('이 저장소 tools 폴더에 뭐가 있는지 알려줘')).toBe('search')
 })
 
-test('after the fact: a turn of one or two plain reads or writes with a short answer was a worker job; tests and Bash were not', () => {
+test('after the fact: a turn of one or two plain reads or writes with a short answer was a worker job; tests and other shell commands were not', () => {
   const short = { output_tokens: 600 }
   expect(missedWorkerOf([{ tool: 'Read', isError: false }, { tool: 'Glob', isError: false }], short)?.task).toBe('search')
   expect(missedWorkerOf([{ tool: 'mcp__notion__notion-update-page', isError: false }], short)?.task).toBe('write')
   expect(missedWorkerOf([{ tool: 'Bash', isError: false }], short)).toBeNull()
+  // a shell command that only reads (cat, grep, ls …) is a read like Read or Grep
+  const bash = isReadOnlyCommand('cd /x && grep -n foo a.js | head -5')
+  expect(bash).toBe(true)
+  expect(missedWorkerOf([{ tool: 'Bash', isError: false, ro: bash }], short)?.why).toMatch(/Bash\(읽기\)/)
   expect(missedWorkerOf([{ tool: 'Read', isError: false }], { output_tokens: 4000 })).toBeNull() // long answer: real thinking
   expect(missedWorkerOf([1, 2, 3, 4].map(() => ({ tool: 'Read', isError: false })), short)).toBeNull()
   expect(missedWorkerOf([], short)).toBeNull()
@@ -129,4 +133,43 @@ test('the log keeps the start of each request and marks a missed worker job', as
   const log = ((await $.command.run({ command: 'auto-model', args: 'log' } as never)) as any).text
   expect(log).toMatch(/놓친 일꾼 후보 1번 \(쓰기 0 · 찾기 1\)/)
   expect(log).toMatch(/"이 저장소 루트에 있는 파일 확인해줘"/)
+})
+
+test('a shell command counts as reading only when nothing in it writes', () => {
+  for (const c of ['cat a.txt', 'sed -n 1,20p f.js', 'git status --short', 'grep foo f 2>/dev/null', 'PYTHONHASHSEED=0 head x', 'find . -name "*.md"'])
+    expect(isReadOnlyCommand(c)).toBe(true)
+  for (const c of ['sed -i s/a/b/ f', 'ls > out.txt', 'find . -name x -delete', 'git push', 'git branch -D x', 'python3 x.py', 'echo $(rm x)', 'npm test', ''])
+    expect(isReadOnlyCommand(c)).toBe(false)
+})
+
+test('a problem report or a request to go and check is heavy work, never a light recall question', () => {
+  for (const t of ['국장 확인좀 ㅋㅋ', 'ja.win이 캐시식었을때 압축이 계속 고장이네', '버튼이 반응이 없어', '지금은 어때 다시 해바', '그 유튜버 찾아봐줘', '로그인이 안 돼'])
+    expect(ruleOf(t)).toBe('heavy')
+  expect(ruleOf('테리 점 버전이 뭐였지')).toBe('light')
+})
+
+test('word candidates: words that keep turning up in requests the rules missed, and seldom on the other side', () => {
+  expect(outcomeOf(5, { output_tokens: 300 })).toBe('heavy')
+  expect(outcomeOf(0, { output_tokens: 400 })).toBe('light')
+  expect(outcomeOf(1, { output_tokens: 1800 })).toBeNull()
+  expect(wordsOf('[Image #3] 국장 체크ㄱ ㅋㅋ src/a.js 그럼 어떰?')).toEqual(['국장', '체크', '어떰'])
+  const samples = [
+    { p: '국장 어떰', k: 'heavy' }, { p: '해외 어떰', k: 'heavy' }, { p: '오늘 장 어떰 ㅋㅋ', k: 'heavy' },
+    { p: '좋아 고마워 어떰', k: 'light' },
+    { p: '좋아 고마워', k: 'light' }, { p: '오늘 날씨 좋다', k: 'light' },
+    { p: '노션 메모 불러와', k: 'search' }, { p: '어제 회의록 불러와', k: 'search' },
+    { p: '코드 고쳐줘', k: 'heavy' }, // already heavy by the rules: not a miss
+  ]
+  const c = wordCandidates(samples)
+  expect(c.heavy.map(x => x.word)).toEqual(['어떰'])
+  expect(c.heavy[0]).toEqual({ word: '어떰', hits: 3, total: 4 })
+  expect(c.search.map(x => x.word)).toEqual(['불러와'])
+  expect(c.write).toEqual([])
+  // once a word is added it is part of the rules, so it is no longer a candidate
+  setExtraWords({ heavy: ['어떰'], search: ['불러와'] })
+  expect(ruleOf('국장 어떰')).toBe('heavy')
+  expect(taskOf('어제 회의록 불러와')).toBe('search')
+  expect(wordCandidates(samples).heavy).toEqual([])
+  setExtraWords({})
+  expect(ruleOf('국장 어떰')).not.toBe('heavy')
 })

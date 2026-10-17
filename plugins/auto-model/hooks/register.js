@@ -31,7 +31,7 @@
 // /auto-model compact [남길 내용] · dismiss · preview : 압축 / 이번 제안 닫기 / 제안 미리 보기 1분
 // /auto-model warn <퍼센트> | off : 작업 중 대화가 이만큼 차면 압축 권하기 (기본 85)
 
-import { MODELS, appendCost, familyOf, isRejection, isSearchy, missedWorkerOf, opusWouldCompact, opusWouldWorker, prettyName, promptHead, ruleOf, taskOf, turnCost, usageCost, workerEstimate } from './route.js'
+import { MODELS, WORD_KINDS, agentModelOf, appendCost, outcomeOf, setExtraWords, wordCandidates, familyOf, isReadOnlyCommand, latestOf, isRejection, isSearchy, missedWorkerOf, modelGen, opusWouldCompact, opusWouldWorker, prettyName, promptHead, ruleOf, taskOf, toolsText, turnCost, usageCost, workerEstimate } from './route.js'
 
 const HINT = { plugin: 'auto-model', key: 'hint' }
 const ROUTE = { plugin: 'auto-model', key: 'route' }
@@ -40,7 +40,7 @@ const SAVING = { plugin: 'auto-model', key: 'saving' }
 const ASK = { plugin: 'auto-model', key: 'ask' }
 let askHandled = true // 부탁한 압축이 시작됐는지 (안 되면 3초 뒤 직접)
 
-const DEFAULTS = { enabled: true, ttlMinutes: 60, minTokens: 150000, route: 'auto', pin: null, mainHaiku: false, lightSwitch: false, worker: 'shadow', warnPct: 85, logDir: null, logPrompt: true }
+const DEFAULTS = { enabled: true, ttlMinutes: 60, minTokens: 150000, route: 'auto', pin: null, mainHaiku: false, lightSwitch: false, worker: 'shadow', warnPct: 85, logDir: null, logPrompt: true, words: { heavy: [], search: [], write: [] } }
 let settings = { ...DEFAULTS }
 // 메인 대화의 마지막 모델 호출: 시각, 다음 요청이 다시 보낼 크기, 답한 모델
 let last = null
@@ -74,7 +74,7 @@ let pendingWork = null // 방금 입력한 요청이 일꾼 후보면 { task, mo
 const workerWaiters = new Map() // 일꾼 agentId -> resolve(turn.complete)
 const workerIds = new Set() // 우리가 띄운 일꾼: 끝나면 엔진이 결과를 메인 대화에 또 배달하는데, 이미 답으로 붙였으니 버린다
 const WORKER_WAIT_MS = 10 * 60000
-const turnTools = new Map() // 메인 턴 turnId -> 그 턴의 도구 호출 [{ tool, isError }] (사후 판정용)
+const turnTools = new Map() // 메인 턴 turnId -> 그 턴의 도구 호출 [{ tool, isError, ro }] (사후 판정용. ro: 읽기만 하는 셸 명령)
 let liveTurnId = null
 
 // 판단 근거를 세션 상태에 적어 둔다 (/reload-plugins 는 모듈 변수를 비우지만 $.state 는 남는다)
@@ -475,6 +475,7 @@ async function remember($, entry) {
 }
 // store 'decisions' 는 이 컴퓨터의 모든 세션이 같이 쓴다: 다른 세션 것은 두고 이 세션 것만 바꿔 넣는다
 // (전엔 세션마다 제 목록으로 통째로 덮어써서, 터미널을 여럿 띄우거나 /reload-plugins 하면 기록이 사라졌다)
+const extraRows = [] // 판단 줄 말고 덧붙일 줄 (shadow 의 다음 턴)
 async function flushLog($) {
   const rows = decisions.filter(d => !d.logged)
   for (const d of rows) d.logged = true
@@ -483,7 +484,7 @@ async function flushLog($) {
     const merged = [...saved.filter(d => !sessionId || d.sid !== sessionId), ...decisions].sort((a, b) => a.at - b.at)
     await $.store.set('decisions', merged.slice(-100))
   } catch {}
-  await writeLog($, rows.map(turnRow))
+  await writeLog($, [...extraRows.splice(0), ...rows.map(turnRow)])
 }
 async function restoreDecisions($) {
   try {
@@ -496,6 +497,32 @@ async function restoreDecisions($) {
 // <폴더>/auto-model/<날짜>/<wsl|win|local>-<세션 앞 8자>.jsonl. 파일 쓰기는 통째로 쓰는 것뿐이라 줄을 들고 있다가 다시 쓴다
 const fileLines = new Map() // 파일 경로 → 줄들 (reload 뒤 처음 쓸 때 파일에서 다시 읽어 이어 붙인다)
 let logFailed = false
+const oldAgentWarned = new Set() // 옛 모델로 돈 서브에이전트 종류 (세션마다 한 번만 알린다)
+const oldTypes = new Map() // 옛 모델로 돈 적이 있는 서브에이전트 종류 → 그 모델 (정의를 못 읽었을 때 다음부터 최신으로)
+let sessionCwd = null
+const agentDefs = new Map() // 서브에이전트 종류 → 정의에 적힌 model (null: 없음)
+// 에이전트 정의에 적힌 model: 프로젝트(.claude/agents)와 사용자(~/.claude/agents)의 <종류>.md 에서. 못 읽으면 옛 모델로 돈 적이 있는지로
+async function definedModel($, type) {
+  if (!type || !/^[\w.:-]+$/.test(type)) return null
+  if (!agentDefs.has(type)) {
+    let found = null
+    let home = null
+    try {
+      home = await $.env.get('HOME')
+    } catch {}
+    for (const dir of [sessionCwd, home].filter(Boolean)) {
+      try {
+        const path = dir.replace(/[\\/]+$/, '') + '/.claude/agents/' + type + '.md'
+        if (await $.fs.exists(path)) {
+          found = agentModelOf(await $.fs.read(path))
+          break
+        }
+      } catch {}
+    }
+    agentDefs.set(type, found)
+  }
+  return agentDefs.get(type) || oldTypes.get(type) || null
+}
 let envTag = null
 const localTime = at => new Date(at).toLocaleString('sv-SE') // YYYY-MM-DD HH:MM:SS
 async function envOf($) {
@@ -544,7 +571,9 @@ function turnRow(d) {
 // 이번 턴의 모델: 사람이 고른 세션 모델(base)을 기준으로, 내릴지 / 그대로 둘지 / 되돌릴지
 async function decide($, e) {
   const now = await $.clock.now()
-  const base = e.model
+  // 옛 모델은 같은 종류의 최신 모델로 (사용자 원칙: 어떤 모델이든 최신 버전으로 돌린다. 2026-10-17)
+  const base = settings.enabled ? latestOf(e.model) : e.model
+  const upgraded = base !== e.model ? ` (${prettyName(e.model)} → 최신 ${prettyName(base)})` : ''
   if (sessionBase && familyOf(base) !== familyOf(sessionBase) && familyOf(base) !== familyOf(current) && !stopped && settings.route === 'auto') {
     stopped = true // /model 로 직접 바꿨다: 이 세션은 사람 뜻대로
     await remember($, { at: now, turnId: e.turnId, from: current, to: base, reason: '/model 로 직접 바꿈 → 이 세션 자동 중지' })
@@ -557,6 +586,7 @@ async function decide($, e) {
   const warm = model => warmAt[familyOf(model)] != null && now - warmAt[familyOf(model)] < settings.ttlMinutes * 60000
   const entry = { at: now, turnId: e.turnId, from: cur, ctx, baseWarm: warm(base), prompt: p ? promptHead(p.text) : undefined }
   const pick = async (to, reason, extra = {}) => {
+    reason += upgraded
     Object.assign(entry, { to, reason }, extra)
     await remember($, entry)
     await publish($, base, to, reason)
@@ -582,7 +612,11 @@ async function decide($, e) {
   let rule = ruleOf(p.text, lastAnswer)
   // 직전 판단이 shadow(켰다면 내렸을 것)였으면, 다음 턴이 무슨 일이었는지 붙여 둔다 (켰다면 손익 계산용)
   const open = [...decisions].reverse().find(d => d.shadow && !d.next)
-  if (open && open.turnId !== e.turnId) open.next = { rule, turnId: e.turnId }
+  if (open && open.turnId !== e.turnId) {
+    open.next = { rule, turnId: e.turnId }
+    // 그 shadow 줄은 이미 파일에 썼다: 다음 턴이 무슨 일이었는지 한 줄 덧붙인다 (켰다면 손익을 파일 로그만으로 셀 수 있게)
+    if (open.logged) extraRows.push({ kind: 'next', time: localTime(now), turnId: open.turnId, rule, nextTurnId: e.turnId })
+  }
   if (rule === 'heavy' || rule === 'approve') {
     const what = rule === 'approve' ? '승인·진행 지시' : '무거운 일'
     return pick(base, cheap ? what + ' → 원래 모델로' : what, { rule })
@@ -690,6 +724,24 @@ async function statusText($) {
   return lines.join('\n')
 }
 
+// 단어 후보: 규칙이 놓친 문장에 자주 나온 말 (사람이 보고 /auto-model word add 로 더한다)
+async function wordText($, full) {
+  let samples = []
+  try {
+    samples = (await $.store.get('wordSamples')) || []
+  } catch {}
+  const c = wordCandidates(samples)
+  const lines = []
+  for (const k of Object.keys(WORD_KINDS)) {
+    if (c[k].length) lines.push(`  ${WORD_KINDS[k]} 후보: ` + c[k].map(x => `'${x.word}' (놓친 문장 ${x.hits}번${x.total > x.hits ? ` · 반대쪽 ${x.total - x.hits}번` : ''})`).join(', ') + ` → /auto-model word add ${k} <단어>`)
+  }
+  const head = `단어 후보 (요청 ${samples.length}개에서, 규칙이 놓친 문장에 2번 이상 나온 말):`
+  if (!full) return lines.length ? [head, ...lines].join('\n') : ''
+  const added = Object.keys(WORD_KINDS).map(k => `  ${WORD_KINDS[k]}: ${(settings.words && settings.words[k] || []).map(w => `'${w}'`).join(', ') || '없음'}`)
+  return ['더한 단어:', ...added, lines.length ? head : `단어 후보: 아직 없어요 (요청 ${samples.length}개를 모았어요. 같은 말이 놓친 문장에 2번 이상 나오면 보여요)`, ...lines,
+    '(/auto-model word add|remove heavy|search|write <단어>)'].join('\n')
+}
+
 async function logText($) {
   let saved = []
   try {
@@ -734,6 +786,8 @@ async function logText($) {
   }
   const wr = all.filter(d => d.worker)
   if (wr.length) lines.push(`일꾼이 실제로 맡은 턴: ${wr.length}번 · 일꾼 비용 합 약 ${usd(wr.reduce((a, d) => a + (d.usage ? usageCost(d.to, d.usage) : d.est || 0), 0))}`)
+  const wt = await wordText($, false)
+  if (wt) lines.push(wt)
   lines.push('최근 판단 (시각 · 이전→이번 · 이유 · 대화 · 캐시 · 이번 턴 사용량):')
   for (const d of all.slice(-15)) {
     const u = d.usage
@@ -751,7 +805,7 @@ async function logText($) {
   }
   if (subs.length) {
     lines.push('최근 서브에이전트 (종류 · 요청한 모델 → 실제 모델):')
-    for (const s of subs.slice(-8)) lines.push(`  ${timeText(s.at)} · ${s.type} · ${s.requested || '(지정 없음)'} → ${s.resolved || '?'}${s.routed ? ' (검색류라 haiku 로)' : ''}`)
+    for (const s of subs.slice(-8)) lines.push(`  ${timeText(s.at)} · ${s.type} · ${s.requested || '(지정 없음)'} → ${s.resolved || '?'}${s.routed ? ' (검색류라 haiku 로)' : ''}${s.lifted ? ` (정의는 ${s.lifted} → 최신으로)` : ''}${s.old ? ' · ⚠ 메인보다 옛 모델' : ''}`)
   }
   return lines.join('\n')
 }
@@ -759,13 +813,15 @@ async function logText($) {
 export function register(on) {
   on('session.start', async ($, e, next) => {
     const r = await next(e)
+    sessionCwd = (e && e.cwd) || sessionCwd
     try {
       settings = { ...DEFAULTS, ...((await $.store.get('settings')) || {}) }
     } catch {}
+    setExtraWords(settings.words)
     await restoreMemory($)
     await restoreDecisions($)
     await restoreCost($)
-    await $.command.register({ name: 'auto-model', description: '캐시를 아끼며 모델을 골라요: 쉰 뒤 압축 제안, 가벼운 요청 자동 전환 (on · off · auto · manual · pin · log · logdir)' })
+    await $.command.register({ name: 'auto-model', description: '캐시를 아끼며 모델을 골라요: 쉰 뒤 압축 제안, 가벼운 요청 자동 전환 (on · off · auto · manual · pin · log · logdir · word)' })
     $.clock.every(30000, () => void check($))
     $.clock.every(60000, () => void (async () => {
       await flushCost($)
@@ -936,7 +992,7 @@ export function register(on) {
     const r = await next(e)
     if (!e.agentId && liveTurnId) {
       const list = turnTools.get(liveTurnId) || []
-      list.push({ tool: String(e.tool || ''), isError: !!(r && r.isError) })
+      list.push({ tool: String(e.tool || ''), isError: !!(r && r.isError), ...(e.tool === 'Bash' && isReadOnlyCommand(e.command) ? { ro: true } : {}) })
       turnTools.set(liveTurnId, list)
       if (turnTools.size > 30) turnTools.delete(turnTools.keys().next().value)
     }
@@ -955,12 +1011,23 @@ export function register(on) {
         d.potentialCounted = true
         await addSaving($, 'potential', Math.max(0, usageCost(d.to, d.usage) - d.workerShadow.est))
       }
+      const tools = turnTools.get(e.turnId)
+      if (d && tools && tools.length) d.tools = toolsText(tools.length > 12 ? tools.slice(0, 12) : tools) + (tools.length > 12 ? ` 외 ${tools.length - 12}개` : '') // (파일 로그에서 그 턴이 한 일을 보려고)
       if (d && !d.worker && d.usage) {
-        const miss = missedWorkerOf(turnTools.get(e.turnId), d.usage)
+        const miss = missedWorkerOf(tools, d.usage)
         if (miss) {
           const wm = miss.task === 'write' ? MODELS.sonnet : MODELS.haiku
           d.missedWorker = { task: miss.task, why: miss.why, model: wm, est: workerEstimate(wm) }
         }
+      }
+      // 단어 후보의 재료: 요청 문장과 그 턴이 실제로 어떤 일이었는지 (규칙은 볼 때마다 지금 것으로 다시 대 본다)
+      const k = d && d.prompt && d.usage && !d.worker ? (d.missedWorker ? d.missedWorker.task : outcomeOf(tools ? tools.length : 0, d.usage)) : null
+      if (k) {
+        try {
+          const samples = (await $.store.get('wordSamples')) || []
+          samples.push({ at: d.at, p: d.prompt, k })
+          await $.store.set('wordSamples', samples.slice(-400))
+        } catch {}
       }
       turnTools.delete(e.turnId)
     }
@@ -973,14 +1040,30 @@ export function register(on) {
   // 서브에이전트: 모델을 지정하지 않은 검색·탐색류는 Haiku 로. 지정한 모델이 있으면 그게 먼저. 모두 기록한다.
   on('agent.spawn', async ($, e, next) => {
     const routed = routing() && !e.model && !e.fork && isSearchy(e.subagentType, e.description)
-    const r = await next(routed ? { ...e, model: 'haiku' } : e)
+    // 옛 모델 → 같은 종류의 최신 (별칭으로 넘긴다: 'opus' 는 최신으로 풀린다). 정한 모델이 없으면 에이전트 정의의 model 을 본다
+    const asked = e.model || (!e.fork && settings.enabled ? await definedModel($, e.subagentType) : null)
+    const lift = settings.enabled && !routed && asked && latestOf(asked) !== asked ? familyOf(asked) : null
+    const r = await next(routed ? { ...e, model: 'haiku' } : lift ? { ...e, model: lift } : e)
+    let subOld = null
     try {
       const subs = (await $.store.get('subagents')) || []
-      subs.push({ at: await $.clock.now(), type: e.subagentType, requested: routed ? 'haiku' : e.model || null, resolved: (r && r.model) || null, routed })
+      const resolved = (r && r.model) || null
+      // 메인보다 옛 세대 모델로 돈 서브에이전트 (에이전트 정의에 옛 모델 이름이 박혀 있을 때): 기록하고, 종류마다 한 번 알린다
+      const mainGen = modelGen(sessionBase || current)
+      const old = resolved && mainGen != null && modelGen(resolved) != null && modelGen(resolved) < mainGen
+      subs.push({ at: await $.clock.now(), type: e.subagentType, requested: routed ? 'haiku' : e.model || null, resolved, routed, ...(lift ? { lifted: asked } : {}), ...(old ? { old: true } : {}) })
+      if (old) subOld = resolved
+      if (old && e.subagentType) oldTypes.set(e.subagentType, resolved) // (정의를 못 읽었어도 다음부터는 최신으로)
       await $.store.set('subagents', subs.slice(-50))
       const s = subs[subs.length - 1]
       await writeLog($, [{ kind: 'agent', time: localTime(s.at), ...s, ...(e.agentId ? { parent: e.agentId } : {}) }])
     } catch {}
+    if (subOld && !oldAgentWarned.has(e.subagentType)) {
+      oldAgentWarned.add(e.subagentType)
+      try {
+        void $.ui.toast(`서브에이전트 ${e.subagentType || ''} 가 옛 모델 ${prettyName(subOld)} 로 돌았어요 (에이전트 정의의 model 확인)`).catch(() => {})
+      } catch {}
+    }
     return r
   }).catch(($, e, next) => next(e))
 
@@ -1092,6 +1175,19 @@ export function register(on) {
       return { text: { on: '판단이 필요 없는 일은 일꾼(쓰기 Sonnet, 찾기·읽기 Haiku)이 맡아요', shadow: '일꾼 후보만 기록하고 실제로는 원래 모델이 처리해요', off: '일꾼을 껐어요 (@@ 로 손으로 부르는 건 그대로)' }[m] }
     }
     if (arg === 'log') return { text: await logText($) }
+    if (arg === 'word' || arg === 'words') {
+      const [op = '', kind = '', ...ws] = rest
+      const w = ws.join(' ').trim()
+      if (!op) return { text: await wordText($, true) }
+      if (!['add', 'remove'].includes(op) || !WORD_KINDS[kind] || !w) return { text: '/auto-model word add|remove heavy|search|write <단어> (그냥 /auto-model word: 더한 단어와 후보)' }
+      const list = new Set((settings.words && settings.words[kind]) || [])
+      if (op === 'add') list.add(w)
+      else list.delete(w)
+      settings.words = { ...DEFAULTS.words, ...(settings.words || {}), [kind]: [...list] }
+      setExtraWords(settings.words)
+      await save()
+      return { text: op === 'add' ? `'${w}' 이(가) 든 요청을 ${WORD_KINDS[kind]}(으)로 봐요` : `'${w}' 를 ${WORD_KINDS[kind]} 단어에서 뺐어요` }
+    }
     if (arg === 'logdir') {
       const words = [...rest]
       const noprompt = words.length > 1 && words[words.length - 1].toLowerCase() === 'noprompt'

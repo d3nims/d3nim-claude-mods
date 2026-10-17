@@ -1233,9 +1233,10 @@ EDITS = json.load(open(_EDITS_PATH, encoding='utf-8')) if os.path.exists(_EDITS_
 EDITOR_SRC = {}  # each classic set's frames as packed, for the editor's data
 
 
-def edited(name, frames):
-    """The set's frames with the editor's saved frames put in place of the drawn ones."""
-    out = list(frames)
+def edited(name, frames, count=None):
+    """The set's frames with the editor's saved frames put in place of the drawn ones.
+    count: how many frames the set has, when the editor's frames replace the drawn set outright (the run)."""
+    out = list(frames)[:count] if count is not None else list(frames)
     EDITOR_SRC[name] = out
     for k, rows in EDITS.get(name, {}).items():
         i = int(k)
@@ -1419,12 +1420,16 @@ CATCH_MS = [360, 90, 120, 80, 90, 260, 100, 120, 160, 220]   # 1600 ms: the thro
 CATCH_AT = 5
 
 
-sets = {'walk': pack(edited('walk', RUN), [40] * len(RUN)), 'run': pack(edited('run', DASH), [40] * len(DASH)), 'pant': pack(edited('pant', PANT), [70] * len(PANT)), 'sleep': pack(edited('sleep', SLEEP), [700, 700]),
+# the run is PixelLab's gallop B, tidied (E, 2026-10-17): nine frames at 60 ms, frame 0 the old key pose 4, stretched
+# flat out in the air, which the flight at max holds
+RUN_MS = [60] * len(EDITS['run'])
+sets = {'walk': pack(edited('walk', RUN), [40] * len(RUN)), 'run': pack(edited('run', DASH, len(EDITS['run'])), RUN_MS), 'pant': pack(edited('pant', PANT), [70] * len(PANT)), 'sleep': pack(edited('sleep', SLEEP), [700, 700]),
         'sit': pack(edited('sit', SIT), [450, 160, 450, 160] * 2), 'wag': pack(edited('wag', WAG), [140, 90, 80, 90, 140, 90, 80, 90]), 'bark': pack(edited('bark', BARK[:1] + BARK[1:2] + BARK[1:3] + BARK[3:] + BARK[3:]), [150, 60, 120, 170, 70, 260]),
         'sniff': pack(edited('sniff', SNIFF), [65] * len(SNIFF)), 'dig': pack(edited('dig', DIG), [45] * len(DIG)), 'ask': pack(edited('ask', ASK), [500, 500]), 'sad': pack(edited('sad', SAD), [1200, 1200]),
         'droop': pack(edited('droop', DROOP), [1000, 1000]), 'pet': pack(edited('pet', PET), [55] * len(PET)), 'door': pack(edited('door', DOOR), [240, 150, 130, 150, 240, 150, 130, 150]),
         'stretch': pack(edited('stretch', STRETCH), STRETCH_MS), 'eat': pack(edited('eat', EAT), [160] * len(EAT)), 'jump': pack(edited('jump', [OUTLINE_FN(f) for f in CATCH]), CATCH_MS)}
 sets['jump']['catchAt'] = CATCH_AT
+sets['run']['flyFrame'] = 0
 
 
 def mouth_of(img):

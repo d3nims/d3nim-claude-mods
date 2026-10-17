@@ -1,0 +1,152 @@
+<title>테리 블록 비교</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 라이트테이블 위 필름 노트: 한 열 읽기, 애니메이션 타일은 격자로 */
+:root {
+  --bg: #eef0ee; --panel: #fbfcfb; --fg: #1f2623; --muted: #5d6a64; --line: #d3d9d5;
+  --accent: #2f6f8f; --accent-soft: #d9e8ef; --warn: #b5642a; --ok: #3d7a4f; --stage: #26313a;
+  --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #161b1a; --panel: #1e2523; --fg: #e3e8e5; --muted: #98a59f; --line: #33403b;
+  --accent: #7fb6d1; --accent-soft: #23343c; --warn: #e09a62; --ok: #7cc192; --stage: #0f1417; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #161b1a; --panel: #1e2523; --fg: #e3e8e5; --muted: #98a59f; --line: #33403b;
+  --accent: #7fb6d1; --accent-soft: #23343c; --warn: #e09a62; --ok: #7cc192; --stage: #0f1417; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.65; }
+.wrap { max-width: 920px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 56px; display: grid; gap: 36px; }
+h1 { font-size: 1.9rem; line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-size: 1.25rem; margin: 0 0 6px; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--muted); }
+.eyebrow { font-family: var(--mono); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+section { display: grid; gap: 14px; min-width: 0; }
+.verdict { background: var(--accent-soft); border-radius: 10px; padding: 16px 18px; display: grid; gap: 6px; }
+.verdict b { color: var(--fg); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; min-width: 0; }
+figure canvas { width: 100%; aspect-ratio: 4 / 3; background: var(--stage); display: block; image-rendering: pixelated; }
+figure canvas.photo { image-rendering: auto; }
+figcaption { padding: 8px 12px 10px; font-size: .86rem; display: grid; gap: 2px; }
+figcaption small { color: var(--muted); font-family: var(--mono); font-size: .75rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button { font: inherit; font-size: .86rem; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: .88rem; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-weight: 500; color: var(--muted); font-size: .8rem; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--accent); vertical-align: middle; margin-right: 8px; }
+tr.terry td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.bar.w { background: var(--warn); }
+.est { color: var(--muted); font-size: .75rem; }
+.findings { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.findings li { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; }
+.pill { font-family: var(--mono); font-size: .72rem; padding: 2px 8px; border-radius: 999px; white-space: nowrap; margin-top: 3px; }
+.pill.fix { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.pill.good { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.strip div { flex: 0 0 auto; display: grid; gap: 2px; justify-items: center; font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+.strip canvas { width: 76px; height: 61px; background: var(--stage); border-radius: 6px; image-rendering: pixelated; }
+.strip .up { color: var(--warn); font-weight: 500; }
+.options { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.opt { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
+.opt h3 { margin: 0; font-size: 1rem; }
+.opt p { color: var(--muted); font-size: .9rem; }
+.src { font-size: .85rem; color: var(--muted); display: grid; gap: 4px; }
+.src a { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .motion-note { display: block; } }
+.motion-note { display: none; color: var(--muted); font-size: .85rem; }
+
+.tiles canvas { aspect-ratio: auto; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+</style>
+<div class="wrap">
+  <header style="display:grid;gap:10px">
+    <div class="eyebrow">block test · 2026-10-14 · 2차</div>
+    <h1>새 테리를 블록(quad·fine)으로</h1>
+    <p class="lede">지금 quad·fine은 1.0.2 옛 그림이에요. 점자용 새 그림을 블록으로 바꾸면 어떻게 보이는지, 실제 카드와 같은 변환 코드(render.js)로 그렸어요. 글자 칸은 10×20픽셀로, 터미널과 비슷한 크기예요.</p>
+  </header>
+  <div class="verdict">
+    <b>새로: '큰 머리 + 새 움직임'</b>
+    <p>몸·다리·움직임(C안 달리기 포함)은 새 그림, 머리는 1.0.2 블록 그림의 큰 머리(늘어진 귀)예요. 머리는 새 그림의 눈 위치를 따라가서 달릴 때 오르내림도 그대로예요. 헥헥의 혀도 예전 머리 것을 써요. 몸은 '중간'만큼 회색을 밝혔고, 머리는 원래 블록용 색 그대로예요.</p>
+  </div>
+  <section>
+    <div class="controls">
+      <div class="seg" id="moods"></div>
+      <button id="play" aria-pressed="true">재생 중</button>
+      <button id="slow" aria-pressed="false">4배 느리게</button>
+    </div>
+    <div class="eyebrow">fine (촘촘한 블록)</div>
+    <div class="tiles" id="t-fine"></div>
+    <div class="eyebrow">quad (사분블록)</div>
+    <div class="tiles" id="t-quad"></div>
+    <p class="est">점자 칸의 점 모양은 터미널 글꼴마다 달라서 비슷하게만 그렸어요. 달리기는 C안이에요. 자기·짖기 같은 다른 동작은 아직 안 만들었어요.</p>
+  </section>
+</div>
+<script>
+const D = /*DATA*/null;
+const DEF = 0x01000000, BR = [[1, 8], [2, 16], [4, 32], [64, 128]];
+const MOODS = [['run', '달리기'], ['walk', '걷기'], ['pant', '헥헥']];
+const TILES = {
+  fine: [['old.fine', '예전 fine (1.0.2 그림)'], ['hyb.fine', '큰 머리 + 새 움직임'], ['mid.fine', '새 그림 · 중간'], ['raw.braille', '점자 (지금 기본)']],
+  quad: [['old.quad', '예전 quad (1.0.2 그림)'], ['hyb.quad', '큰 머리 + 새 움직임'], ['mid.quad', '새 그림 · 중간']],
+};
+const col = c => c === DEF ? null : '#' + c.toString(16).padStart(6, '0');
+const STAGE = getComputedStyle(document.documentElement).getPropertyValue('--stage').trim() || '#26313a';
+let mood = 'run', playing = !matchMedia('(prefers-reduced-motion: reduce)').matches, slow = 1;
+const players = [];
+function drawFrame(ctx, f, mode) {
+  const cw = 10, ch = 20;
+  ctx.fillStyle = STAGE; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  const ox = Math.floor((ctx.canvas.width - f.cols * cw) / 2), oy = Math.floor((ctx.canvas.height - f.rows * ch) / 2);
+  f.cells.forEach(([m, fg, bg], i) => {
+    const x0 = ox + (i % f.cols) * cw, y0 = oy + Math.floor(i / f.cols) * ch;
+    if (mode !== 'braille' && col(bg)) { ctx.fillStyle = col(bg); ctx.fillRect(x0, y0, cw, ch); }
+    const fc = col(fg); if (!fc) return; ctx.fillStyle = fc;
+    for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) {
+      const sx = x0 + dx * cw / 2, sy = y0 + dy * ch / 4;
+      if (mode === 'braille') { if (m & BR[dy][dx]) { ctx.beginPath(); ctx.arc(sx + cw / 4, sy + ch / 8, 1.6, 0, 7); ctx.fill(); } }
+      else if (m & (1 << (dy * 2 + dx))) ctx.fillRect(sx, sy, cw / 2, ch / 4);
+    }
+  });
+}
+function build() {
+  players.length = 0;
+  for (const [grp, list] of Object.entries(TILES)) {
+    const box = document.getElementById('t-' + grp); box.innerHTML = '';
+    for (const [key, label] of list) {
+      const s = D[key + '.' + mood]; if (!s) continue;
+      const fig = document.createElement('figure'), c = document.createElement('canvas');
+      c.width = s.frames[0].cols * 10 + 40; c.height = s.frames[0].rows * 20 + 30;
+      const cap = document.createElement('figcaption'); cap.innerHTML = label + '<small>' + s.frames.length + '장 · ' + s.durations[0] + 'ms</small>';
+      fig.append(c, cap); box.appendChild(fig);
+      const ctx = c.getContext('2d'), mode = key.split('.')[1];
+      const p = { i: 0, t: 0, s, draw: () => drawFrame(ctx, s.frames[p.i], mode) }; p.draw(); players.push(p);
+    }
+  }
+}
+const mbox = document.getElementById('moods');
+for (const [k, label] of MOODS) {
+  const b = document.createElement('button'); b.textContent = label; b.setAttribute('aria-pressed', k === mood);
+  b.onclick = () => { mood = k; for (const x of mbox.children) x.setAttribute('aria-pressed', x === b); build(); };
+  mbox.appendChild(b);
+}
+build();
+let last = performance.now();
+function tick(now) {
+  const dt = now - last; last = now;
+  if (playing) for (const p of players) { p.t += dt; let step = p.s.durations[p.i] * slow; while (p.t >= step) { p.t -= step; p.i = (p.i + 1) % p.s.frames.length; step = p.s.durations[p.i] * slow; p.draw(); } }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+const playBtn = document.getElementById('play'), slowBtn = document.getElementById('slow');
+function sync() { playBtn.setAttribute('aria-pressed', playing); playBtn.textContent = playing ? '재생 중' : '멈춤'; slowBtn.setAttribute('aria-pressed', slow > 1); }
+playBtn.onclick = () => { playing = !playing; sync(); };
+slowBtn.onclick = () => { slow = slow > 1 ? 1 : 4; sync(); };
+sync();
+</script>

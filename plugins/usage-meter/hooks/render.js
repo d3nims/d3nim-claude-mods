@@ -4,7 +4,6 @@
 // is turned into one glyph (quadrant blocks or braille) with a foreground and a background, then packed for `Raster`.
 
 import SPRITE from './terrier-data.js'
-import QUAD_SPRITE from './terrier-quad-data.js'
 
 const DEFAULT = 0x01000000 // Raster's "terminal default colour"
 const BAR_H = 2 // thickness of the glowing gauge line, in sub-pixels
@@ -404,28 +403,17 @@ for (const set of [...Object.values(SETS), ...Object.values(REAL)]) {
   for (const f of set.frames) f.forEach((row, y) => { if (row.some(c => c)) bottom = Math.max(bottom, y) })
   set.drop = ground - bottom
 }
-// Blocks (quad, fine) draw the older frames, made for blocks; braille's frames are drawn dot by dot and blur together
-// in blocks. A mood the older set lacks borrows the braille frame, its greys lifted as braille lifts them (raw, the ear
-// and the hand-laid shading came out as black patches and dark stripes).
-const QPAL = QUAD_SPRITE.palette.map(hex)
-const BLOCK_GREY_LO = 150
+// Blocks (quad, fine) draw the same frames as braille, their greys lifted: raw, the hand-laid shading breaks into
+// two-colour patches cell by cell. Lifted to 150 (as 1.2.x lifted the moods the 1.0.2 block frames lacked) the
+// patches went but so did the volume; 110 keeps the leg shading and still reads clean (user pick, 2026-10-14).
+const BLOCK_GREY_LO = 110
 const liftBlock = c => {
   if (!c || isFeature(c) || OUTLINE.has(c.join(',')) || Math.max(...c) - Math.min(...c) >= 14) return c
   const v = Math.round(BLOCK_GREY_LO + (255 - BLOCK_GREY_LO) * (c[0] / 255))
   return [v, v, Math.min(255, v + 4)]
 }
 const QUAD_SETS = {}
-for (const name of Object.keys(SETS)) {
-  const old = QUAD_SPRITE.sets[name]
-  QUAD_SETS[name] = old
-    ? { ...old, flyFrame: 4, frames: old.frames.map(rows => rows.map(row => [...row].map(c => (c === '.' ? null : QPAL[QUAD_SPRITE.alphabet.indexOf(c)])))) }
-    : { ...SETS[name], frames: SETS[name].frames.map(f => f.map(row => row.map(liftBlock))) }
-}
-for (const set of Object.values(QUAD_SETS)) {
-  let bottom = 0
-  for (const f of set.frames) f.forEach((row, y) => { if (row.some(c => c)) bottom = Math.max(bottom, y) })
-  set.drop = ground - bottom // (the older sleep lay two rows lower: drawn that much higher)
-}
+for (const name of Object.keys(SETS)) QUAD_SETS[name] = { ...SETS[name], frames: SETS[name].frames.map(f => f.map(row => row.map(liftBlock))) }
 const setsFor = mode => (mode === 'braille' ? SETS : QUAD_SETS)
 export const DOG_ROWS = Math.ceil((ground + 1) / 4)
 export const DOG_COLS = Math.ceil(SW / 2)
@@ -529,7 +517,7 @@ export const RUN_STYLES = {
 export const runStyle = effort => RUN_STYLES[effort] || RUN_STYLES.high
 const CAPE_X = 27 // the flight pose's shoulders (sub-pixels from his left), where the cape starts
 const CAPE_BACK = 19 // how far back along his back it lies before it streams off behind
-const FLY_FRAME = 6 // in the run set (two in-betweens per key): key pose 4, stretched flat out in the air
+const FLY_FRAME = 6 // in a run set without its own flyFrame: the pose stretched flat out in the air (the build sets it)
 const SKY_COLS = 12 // room to the right of Terry for the sun, the moon and the stars
 const TRAIL_COLS = 5 // room to the left of Terry for speed lines and dust while he runs
 const SOIL_ROWS = 3 // sub-pixel rows of earth under the grass

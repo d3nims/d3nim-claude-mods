@@ -1,8 +1,9 @@
 // auto-model 2단계의 판단 재료: 요청 문장의 가벼움(로컬 규칙), 모델별 단가, 전환 비용 어림.
 // 화면이나 엔진과는 무관한 순수 함수만 둔다 (테스트하기 쉽게).
 
-// 확실히 무거운 일: 코드나 파일을 만들고 고치는 말, 코드 조각·파일 경로, 이미지·파일 첨부, 불만이나 문제 제보, 긴 지시
-const HEAVY = /(구현|만들|고쳐|고치|수정|리팩|버그|에러|오류|깨져|깨짐|이상|문제|안 ?나|안 ?보|설계|작성|추가해|바꿔|변경|빌드|테스트|배포|올려|올리|커밋|푸시|삭제|지워|분석|조사|검토|리뷰|최적화|마이그|디버그|implement|refactor|fix|build|deploy|debug|broken|```|\[(?:Image|Pasted)|@\S|[\w-]+\/[\w./-]+|\w+\.(?:js|ts|tsx|py|json|md|go|rs|java|sh|css|html)\b)/i
+// 확실히 무거운 일: 코드나 파일을 만들고 고치는 말, 코드 조각·파일 경로, 이미지·파일 첨부, 불만이나 문제 제보('고장', '반응이 없'),
+// 확인·조회를 시키는 말('확인좀', '찾아봐': 도구를 돌려야 한다), 긴 지시
+const HEAVY = /(구현|만들|고쳐|고치|수정|리팩|버그|에러|오류|깨져|깨짐|이상|문제|안 ?나|안 ?보|설계|작성|추가해|바꿔|변경|빌드|테스트|배포|올려|올리|커밋|푸시|삭제|지워|분석|조사|검토|리뷰|최적화|마이그|디버그|고장|먹통|멈춰|멈췄|멈춤|반응(?:이|도)? ?없|안 ?돼|안 ?됨|확인 ?좀|확인해|봐 ?줘|봐 ?주|봐바|해바|찾아 ?봐|알아 ?봐|implement|refactor|fix|build|deploy|debug|broken|```|\[(?:Image|Pasted)|@\S|[\w-]+\/[\w./-]+|\w+\.(?:js|ts|tsx|py|json|md|go|rs|java|sh|css|html)\b)/i
 // 가벼운 질문: '~였던가/뭐였지/어디였지' 처럼 새 일을 시키지 않고 기억을 묻는 짧은 질문 (물음표만 있다고 가볍지 않다)
 const LIGHT = /(어디였|뭐였|무엇이었|언제였|누구였|였던가|였더라|였지\??$|했었지\??$|더라\??$|어디까지)/
 // 맞장구·인사만 있는 말 (요청이 없다): 모델을 바꿀 이유가 아니다
@@ -22,7 +23,7 @@ const REJECT = /(그대로|여전히|안 ?바뀌|아니야|아니라|그게 아�
 export function ruleOf(text, lastAnswer = '') {
   const t = String(text || '').trim()
   if (!t) return 'unsure'
-  if (HEAVY.test(t) || t.length > 120) return 'heavy'
+  if (HEAVY.test(t) || t.length > 120 || hasWord(t, extraWords.heavy)) return 'heavy'
   if (t.length <= 40 && APPROVE.test(t)) return 'approve' // 'ㅇㅋ 진행해' 처럼 섞여도 승인이 먼저
   if (ACK.test(t)) return ASKS_BACK.test(String(lastAnswer || '').trim()) ? 'approve' : 'ack'
   if (t.length <= 40 && LIGHT.test(t)) return 'light'
@@ -90,10 +91,64 @@ export function taskOf(text, lastAnswer = '') {
   if (JUDGE.test(t) || t.length > 160) return 'judgment'
   if ((GEN.test(t) || MECH.test(t)) && PRODUCT.test(t) && !(DEST.test(t) && TARGET.test(t))) return 'judgment'
   if (DEICTIC.test(t)) return 'unsure'
-  if (MECH.test(t)) return 'write'
+  if (MECH.test(t) || hasWord(t, extraWords.write)) return 'write'
   if (GEN.test(t)) return DEST.test(t) && TARGET.test(t) ? 'write' : 'unsure'
-  if (SEARCH.test(t)) return 'search'
+  if (SEARCH.test(t) || hasWord(t, extraWords.search)) return 'search'
   return 'unsure'
+}
+
+// ---- 사람이 확인하고 더한 단어 (/auto-model word add): 규칙(정규식)에 없는 말버릇을 쓰면서 채운다 ----
+const extraWords = { heavy: [], search: [], write: [] }
+export const WORD_KINDS = { heavy: '무거운 일', search: '찾기 일꾼', write: '쓰기 일꾼' }
+const hasWord = (t, words) => words.some(w => t.includes(w))
+export function setExtraWords(words) {
+  for (const k of Object.keys(WORD_KINDS)) extraWords[k] = Array.isArray(words && words[k]) ? words[k].filter(w => typeof w === 'string' && w) : []
+}
+
+// ---- 단어 후보: 실제로 어떤 일이었는지(턴의 도구·출력)와 요청 문장을 모아, 규칙이 놓친 문장에 자주 나오는 말을 고른다 ----
+/** 한 턴이 실제로 어떤 일이었나: 'heavy' (도구 3번 이상이나 긴 답) · 'light' (도구 없이 짧은 답) · null (중간) */
+export function outcomeOf(toolCount, usage) {
+  const out = (usage && usage.output_tokens) || 0
+  if (toolCount >= 3 || out > 2500) return 'heavy'
+  if (toolCount === 0 && out <= 1500) return 'light'
+  return null
+}
+const STOP = new Set(['그럼', '지금', '우리', '이거', '그거', '저거', '그냥', '일단', '근데', '그리고', '혹시', '한번', '이제', '아까', '이건', '그건', '진짜', '너무', '조금', '이렇게', '그렇게', '어떻게', '뭔가', '혹은', '오케이', '좋아', '너가', '내가', '니가', '약간', '다시', '이번', '그래서', '아니면', '그러면', '오호', '아하', '맞아', '있어', '없어'])
+/** 요청을 낱말로: 첨부·코드·경로·웃음·문장부호를 빼고, 한글이 든 2~8자 낱말만 */
+export function wordsOf(text) {
+  const t = String(text || '').replace(/\[(?:Image|Pasted)[^\]]*\]/g, ' ').replace(/```[\s\S]*?```/g, ' ').replace(/[\w-]+\/[\w./-]+/g, ' ')
+  const out = new Set()
+  for (let w of t.split(/[\s,.!?~…()"'“”‘’:;\[\]]+/)) {
+    w = w.replace(/[ㄱ-ㅎㅏ-ㅣ]+$/g, '').replace(/^[ㄱ-ㅎㅏ-ㅣ]+/, '') // (낱자로 붙인 웃음·'ㄱㄱ'는 뗀다)
+    if (w.length >= 2 && w.length <= 8 && /[가-힣]/.test(w) && !STOP.has(w)) out.add(w)
+  }
+  return [...out]
+}
+/**
+ * samples: [{ p: 요청, k: 'heavy' | 'light' | 'search' | 'write' }] (search·write: 원래 모델이 했지만 일꾼으로 충분했던 턴).
+ * 지금 규칙이 놓친 문장(무거운데 무겁다고 못 본 것 · 일꾼감인데 일꾼으로 못 본 것)에 2번 이상 나오고, 반대쪽 문장에는 드문 낱말.
+ * → { heavy: [{ word, hits, total }], search: [...], write: [...] } (많이 나온 순, 종류마다 5개까지)
+ */
+export function wordCandidates(samples) {
+  const missed = {
+    heavy: samples.filter(s => s.k === 'heavy' && !['heavy', 'approve'].includes(ruleOf(s.p))),
+    search: samples.filter(s => s.k === 'search' && taskOf(s.p) !== 'search'),
+    write: samples.filter(s => s.k === 'write' && taskOf(s.p) !== 'write'),
+  }
+  const against = { heavy: samples.filter(s => s.k === 'light'), search: samples.filter(s => s.k === 'heavy'), write: samples.filter(s => s.k === 'heavy') }
+  const out = {}
+  for (const k of Object.keys(WORD_KINDS)) {
+    const hit = new Map()
+    for (const s of missed[k]) for (const w of wordsOf(s.p)) hit.set(w, (hit.get(w) || 0) + 1)
+    const miss = new Map()
+    for (const s of against[k]) for (const w of wordsOf(s.p)) miss.set(w, (miss.get(w) || 0) + 1)
+    out[k] = [...hit]
+      .filter(([w, n]) => n >= 2 && n / (n + (miss.get(w) || 0)) >= 0.6 && !extraWords[k].includes(w))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([word, hits]) => ({ word, hits, total: hits + (miss.get(word) || 0) }))
+  }
+  return out
 }
 
 /** 한 턴(여러 단계)의 실제 값: 사용량 합계로 (캐시 쓰기는 1시간 TTL 이라 입력의 2배로 친다) */
@@ -109,8 +164,27 @@ export const workerEstimate = model => turnCost(model, 30000, false, 800)
 // ---- 사후 판정: Opus 가 처리한 턴이 사실 일꾼으로 충분했는지 (그 턴의 실제 행동으로, 모델 호출 없이) ----
 const WRITE_TOOLS = /^(Write|Edit|MultiEdit|NotebookEdit|mcp__.*(create|update|append|add|insert|write|post|comment).*)$/i
 const SEARCH_TOOLS = /^(Read|Glob|Grep|LS|WebFetch|WebSearch|mcp__.*(fetch|search|get|list|read|query).*)$/i
+// 읽기만 하는 셸 명령: 파일을 읽고 찾고 세는 프로그램만 파이프·&&·; 로 이어졌고, 쓰기(>, sed -i, find -delete/-exec)가 없다.
+// 이 환경은 파일 읽기·검색을 cat·grep·ls 로 할 때가 많아서, Bash 를 모두 '다른 도구'로 치면 놓친 일꾼 후보가 늘 0 이 된다
+const READ_PROGS = new Set(['cat', 'head', 'tail', 'grep', 'egrep', 'rg', 'ls', 'find', 'wc', 'sed', 'pwd', 'cd', 'tree', 'stat', 'file', 'du', 'which', 'sort', 'uniq', 'cut', 'jq', 'diff', 'basename', 'dirname', 'realpath', 'echo', 'nl', 'less', 'more', 'column', 'tr', 'xxd', 'od', 'md5sum', 'sha256sum'])
+const GIT_READ = new Set(['status', 'log', 'diff', 'show', 'blame', 'branch', 'remote', 'rev-parse', 'ls-files', 'grep', 'shortlog', 'describe', 'tag'])
+export function isReadOnlyCommand(command) {
+  const c = String(command || '').trim()
+  if (!c || /[>`]|\$\(|<\(/.test(c.replace(/2>\/dev\/null|2>&1/g, ''))) return false
+  return c.split(/&&|\|\||[|;\n]/).every(part => {
+    const words = part.trim().split(/\s+/).filter(w => !/^\w+=/.test(w)) // (앞에 붙은 VAR=값 은 건너뛴다)
+    const [prog = '', sub = ''] = words
+    if (!prog) return true
+    if (prog === 'git') return GIT_READ.has(sub) && !/\s-(d|D|m|M|-delete)\b/.test(part)
+    if (!READ_PROGS.has(prog)) return false
+    if (prog === 'sed' && /\s-[a-zA-Z]*i/.test(part)) return false
+    if (prog === 'find' && /\s-(delete|exec|execdir|ok|fprint)/.test(part)) return false
+    return true
+  })
+}
+
 /**
- * tools: 그 턴의 메인 도구 호출 [{ tool, isError }], usage: 그 턴 사용량 합계.
+ * tools: 그 턴의 메인 도구 호출 [{ tool, isError, ro }] (ro: 읽기만 하는 셸 명령), usage: 그 턴 사용량 합계.
  * 도구 1~3번, 모두 단순 쓰기·찾기, 오류 없음, 출력 짧음(생각 포함 1500 토큰 이하) → { task, why }. 아니면 null
  */
 export function missedWorkerOf(tools, usage) {
@@ -118,10 +192,31 @@ export function missedWorkerOf(tools, usage) {
   if (tools.some(t => t.isError)) return null
   if (!usage || (usage.output_tokens || 0) > 1500) return null
   const writes = tools.filter(t => WRITE_TOOLS.test(t.tool)).length
-  const reads = tools.filter(t => SEARCH_TOOLS.test(t.tool)).length
+  const reads = tools.filter(t => SEARCH_TOOLS.test(t.tool) || (t.tool === 'Bash' && t.ro)).length
   if (writes + reads !== tools.length) return null // Bash, 서브에이전트, 그 밖의 도구가 끼면 Opus 가 맞다고 본다
   if (writes > 2) return null
-  return { task: writes ? 'write' : 'search', why: `도구 ${tools.map(t => t.tool.replace(/^mcp__[^_]+__/, '')).join(', ')} · 출력 ${usage.output_tokens || 0} 토큰` }
+  return { task: writes ? 'write' : 'search', why: `도구 ${toolsText(tools)} · 출력 ${usage.output_tokens || 0} 토큰` }
+}
+/** 기록용 도구 이름: mcp 앞부분은 빼고, 읽기만 한 셸 명령은 'Bash(읽기)' */
+export const toolsText = tools => (tools || []).map(t => (t.tool === 'Bash' && t.ro ? 'Bash(읽기)' : String(t.tool).replace(/^mcp__[^_]+__/, ''))).join(', ')
+// 모델 세대: claude-opus-4-7 → 4.7, claude-sonnet-5-5 → 5.5 (숫자가 없으면 null)
+export function modelGen(model) {
+  const m = /-(\d+)-(\d+)(?:\b|$)/.exec(String(model || '').replace(/\[.*\]$/, ''))
+  return m ? Number(m[1]) + Number(m[2]) / 10 : null
+}
+/** 같은 종류의 최신 모델: claude-opus-4-7 → claude-opus-5-5 (뒤의 [1m] 은 그대로). 이미 최신이거나 별칭('opus')·모르는 이름이면 그대로 */
+export function latestOf(model) {
+  const m = String(model || '')
+  const latest = MODELS[familyOf(m)]
+  const g = modelGen(m)
+  if (!latest || g == null || g >= modelGen(latest)) return model
+  return latest + (/\[.*\]$/.exec(m) || [''])[0]
+}
+/** 에이전트 정의(.md)의 머리말에 적힌 model (없으면 null) */
+export function agentModelOf(text) {
+  const head = /^---\s*\n([\s\S]*?)\n---/.exec(String(text || ''))
+  const m = head && /^model:\s*["']?([^"'\s#]+)/m.exec(head[1])
+  return m ? m[1] : null
 }
 /** 기록용 요청 앞부분: 공백을 접고 80자까지 (붙여 넣은 긴 글은 잘린다) */
 export const promptHead = text => String(text || '').replace(/\s+/g, ' ').trim().slice(0, 80)

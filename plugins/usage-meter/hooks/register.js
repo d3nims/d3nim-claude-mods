@@ -7,7 +7,7 @@
 import { BAND_GAP, BAND_NAMES, RUN_STYLES, runStyle, holidayOf, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
-const FRAME_MS = 45 // 약 22프레임: 사이 프레임을 늘린 움직임이 부드럽게 보이도록
+const FRAME_MS = 30 // 달리기 한 장(60ms)이 딱 두 번 그려지게 (40ms면 2번·1번 번갈아 그려져 박자가 고르지 않다. 45ms 땐 장이 빠져 몸 흔들림 박자가 튀었다)
 
 const startedAt = Date.now()
 const nowMs = () => Date.now() - startedAt
