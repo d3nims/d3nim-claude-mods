@@ -1,0 +1,90 @@
+{
+ "_about": "테리 움직임 규칙. build-terrier.py 가 읽어 각 동작에 붙이고, render.js 가 그린다. 숫자의 근거는 docs/preview/motion/README.md",
+ "breath": {
+  "_about": "쉬는 동안 숨쉬기: 몸통(등·옆구리)만 부풀었다 들어가고 머리·다리는 그대로 (motion/breath.py). ms 는 한 번 숨쉬는 시간, inhale 은 그중 들이쉰 채인 비율(들숨이 날숨+쉼보다 짧다). exhale_like [동작, 들이쉰 장, 내쉰 장]: 앉은 자세는 사용자가 그린 앉기 0번(부푼 등)과 4번(내쉰 등)의 차이를 따른다. cols·band: 엎드린·선 자세는 cols 칸의 등 윗선(band 줄 안 맨 위 점)이 들이쉴 때 1점 올라간다",
+  "sit": {
+   "ms": 2800,
+   "inhale": 0.4,
+   "exhale_like": [
+    "sit",
+    "0",
+    "4"
+   ]
+  },
+  "wag": {
+   "ms": 2200,
+   "inhale": 0.4,
+   "exhale_like": [
+    "sit",
+    "0",
+    "4"
+   ]
+  },
+  "door": {
+   "ms": 2600,
+   "inhale": 0.4,
+   "exhale_like": [
+    "sit",
+    "0",
+    "4"
+   ]
+  },
+  "ask": {
+   "ms": 2400,
+   "inhale": 0.4,
+   "exhale_like": [
+    "sit",
+    "0",
+    "4"
+   ]
+  },
+  "pet": {
+   "ms": 3000,
+   "inhale": 0.45,
+   "exhale_like": [
+    "sit",
+    "0",
+    "4"
+   ]
+  },
+  "droop": {
+   "ms": 3200,
+   "inhale": 0.4,
+   "cols": [
+    10,
+    22
+   ],
+   "band": [
+    15,
+    24
+   ],
+   "bulge": true
+  },
+  "sad": {
+   "ms": 3600,
+   "inhale": 0.35,
+   "cols": [
+    7,
+    19
+   ],
+   "band": [
+    22,
+    28
+   ],
+   "bulge": true
+  },
+  "sleep": {
+   "ms": 4000,
+   "inhale": 0.4,
+   "cols": [
+    9,
+    18
+   ],
+   "band": [
+    22,
+    28
+   ],
+   "bulge": true
+  }
+ }
+}

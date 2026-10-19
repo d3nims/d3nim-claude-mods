@@ -135,6 +135,18 @@ test('a very narrow window still keeps a short summary beside Terry', async ($, 
   await ui.unmount()
 })
 
+test('a very narrow window still shows the request numbers, one per line', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: { ...(BAND as object), bodyColumns: 54, isWorking: true } as never })
+  expect(await ui.find({ type: 'Text', text: /달리는 중/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^입력 0$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^출력 0$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^캐시 0$/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a /model or /effort change shows on the card without waiting for a request', async ($, on) => {
   const clock = engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })

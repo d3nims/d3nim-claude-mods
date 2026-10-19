@@ -1,0 +1,263 @@
+<title>Terry 모션 모음</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 라이트테이블 작업대: 왼쪽 손잡이(설정), 오른쪽 결과 네 칸. 좁으면 한 줄로 */
+:root {
+  --bg: #eef0ee; --panel: #fbfcfb; --fg: #1f2623; --muted: #5d6a64; --line: #d3d9d5;
+  --accent: #2f6f8f; --accent-soft: #d9e8ef; --warn: #b5642a; --stage: #26313a;
+  --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #161b1a; --panel: #1e2523; --fg: #e3e8e5; --muted: #98a59f; --line: #33403b;
+  --accent: #7fb6d1; --accent-soft: #23343c; --warn: #e09a62; --stage: #0f1417; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #161b1a; --panel: #1e2523; --fg: #e3e8e5; --muted: #98a59f; --line: #33403b;
+  --accent: #7fb6d1; --accent-soft: #23343c; --warn: #e09a62; --stage: #0f1417; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 28px 56px; display: grid; gap: 24px; }
+h1 { font-size: 1.8rem; line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-size: 1rem; margin: 0; }
+p { margin: 0; max-width: 70ch; }
+.lede { color: var(--muted); }
+.eyebrow { font-family: var(--mono); font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 820px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 16px; text-align: center; display: grid; gap: 8px; cursor: pointer; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop small { color: var(--muted); font-size: .8rem; }
+.drop input { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; font-family: var(--mono); padding: 2px 4px 2px 2px; border: 1px solid var(--line); border-radius: 999px; }
+.chip i { width: 16px; height: 16px; border-radius: 50%; display: inline-block; border: 1px solid var(--line); }
+.chip button { padding: 0 6px; border: 0; font-size: .8rem; line-height: 1.4; }
+canvas.src { width: 100%; height: auto; border-radius: 6px; background: var(--bg); cursor: crosshair; touch-action: none; display: block; }
+.field { display: grid; gap: 4px; }
+.field label { display: flex; justify-content: space-between; gap: 8px; font-size: .86rem; }
+.field label output { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); font-size: .8rem; }
+.field small { color: var(--muted); font-size: .76rem; line-height: 1.4; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+select { font: inherit; font-size: .86rem; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); width: 100%; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row input[type=number] { width: 4.2em; font: inherit; font-size: .86rem; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.check { display: flex; gap: 8px; align-items: center; font-size: .86rem; }
+.check input { accent-color: var(--accent); }
+fieldset { border: 0; border-top: 1px solid var(--line); margin: 0; padding: 12px 0 0; display: grid; gap: 12px; min-width: 0; }
+legend { font-size: .74rem; font-family: var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding-right: 8px; }
+button { font: inherit; font-size: .86rem; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+button.primary { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+button[aria-pressed="true"] { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.out { display: grid; gap: 16px; min-width: 0; }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 560px) { .tiles { grid-template-columns: minmax(0, 1fr); } }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; min-width: 0; }
+figure canvas { width: 100%; height: auto; background: var(--stage); display: block; image-rendering: pixelated; }
+figcaption { padding: 8px 12px 10px; font-size: .86rem; display: grid; gap: 2px; }
+figcaption small { color: var(--muted); font-family: var(--mono); font-size: .74rem; }
+.strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.strip button { flex: 0 0 auto; padding: 3px; display: grid; gap: 2px; justify-items: center; font-family: var(--mono); font-size: .7rem; color: var(--muted); }
+.strip canvas { width: 64px; height: 51px; background: var(--stage); border-radius: 4px; image-rendering: pixelated; display: block; }
+.strip img { width: 64px; height: 51px; object-fit: contain; background: var(--bg); border-radius: 4px; display: block; }
+.status { font-size: .84rem; color: var(--muted); }
+.status b { color: var(--warn); font-weight: 500; }
+textarea { width: 100%; min-height: 120px; font-family: var(--mono); font-size: .72rem; line-height: 1.3; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 8px; box-sizing: border-box; resize: vertical; }
+.note { background: var(--accent-soft); border-radius: 10px; padding: 12px 16px; font-size: .88rem; display: grid; gap: 4px; }
+
+.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 760px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rowhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.strip2 { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.strip2 canvas { width: 84px; height: auto; border-radius: 4px; image-rendering: pixelated; background: var(--stage); flex: 0 0 auto; }
+</style>
+%%BODY%%
+<script>
+const DATA = %%DATA%%;
+const W = 50, H = 40, COLS = 25, ROWS = 10, CW = 12, CH = 24;
+const KEYS = %%KEYS%%;
+const TONES = ['S', 'D', 'O', 'L', 'm', 'W'];
+const rgbOf = h => [0, 2, 4].map(k => parseInt(h.slice(k, k + 2), 16));
+const KRGB = Object.fromEntries(Object.entries(KEYS).map(([k, h]) => [k, rgbOf(h)]));
+
+/* ---- the card's renderer (plugins/usage-meter/hooks/render.js), ported as is ---- */
+const DEFAULT = -1;
+const rgbInt = c => (c[0] << 16) | (c[1] << 8) | c[2];
+const BRAILLE_BIT = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]];
+const QUAD = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█';
+const dist = (a, b) => (a === null && b === null ? 0 : a === null || b === null ? 1e9 : (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
+const lum = c => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+const isFeature = c => c !== null && lum(c) < 30;
+const OUTLINE = new Set(['777777', '6d6d6d', '2c2c2c', '6b6b6b', '5e5e5e', '464646', '3a3a3a', '3f3f3f'].map(h => rgbOf(h).join(',')));
+const BR_GREY_LO = 168;
+function cellOf(units, mode) {
+  if (mode === 'braille') {
+    let featureBits = 0;
+    const grey = [], tint = [];
+    for (const u of units) {
+      const c = u.color;
+      if (!c) continue;
+      if (isFeature(c)) { featureBits |= u.bit; continue; }
+      if (OUTLINE.has(c.join(','))) continue;
+      (Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]) < 14 ? grey : tint).push(u);
+    }
+    const reddish = tint.filter(u => u.color[0] > u.color[1] * 1.25);
+    const lit = !grey.length ? tint : reddish.length && reddish.length >= grey.length ? reddish : grey;
+    let bits = 0, r = 0, g = 0, b = 0, n = 0;
+    for (const u of lit) { bits |= u.bit; r += u.color[0]; g += u.color[1]; b += u.color[2]; n++; }
+    if (!bits && !featureBits) return [0x20, DEFAULT, DEFAULT];
+    if (!bits) return [0x2800 + featureBits, rgbInt([90, 90, 98]), DEFAULT];
+    const mean = [r / n, g / n, b / n];
+    if (Math.max(...mean) - Math.min(...mean) < 14) {
+      const v = Math.round(BR_GREY_LO + (255 - BR_GREY_LO) * (mean[0] / 255));
+      return [0x2800 + bits, rgbInt([v, v, Math.min(255, v + 4)]), DEFAULT];
+    }
+    return [0x2800 + bits, rgbInt(mean.map(v => Math.round(255 * Math.pow(v / 255, 0.7)))), DEFAULT];
+  }
+  const counts = new Map();
+  for (const u of units) { const k = u.color ? u.color.join(',') : 'none'; counts.set(k, (counts.get(k) || 0) + 1); }
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => (k === 'none' ? null : k.split(',').map(Number)));
+  const feature = ranked.findIndex(isFeature);
+  if (feature > 1) ranked.splice(1, 0, ranked.splice(feature, 1)[0]);
+  if (ranked.length === 1) return ranked[0] === null ? [0x20, DEFAULT, DEFAULT] : [0x2588, rgbInt(ranked[0]), DEFAULT];
+  const [A, B] = ranked;
+  let bitsA = 0, bitsB = 0;
+  for (const u of units) { if (dist(u.color, B) < dist(u.color, A)) bitsB |= u.bit; else bitsA |= u.bit; }
+  const code = bits => QUAD[bits].codePointAt(0);
+  if (A === null) return [code(bitsB), rgbInt(B), DEFAULT];
+  if (B === null) return [code(bitsA), rgbInt(A), DEFAULT];
+  return [code(bitsB), rgbInt(B), rgbInt(A)];
+}
+const FINE_MASKS = (() => {
+  const bit = (dy, dx) => 1 << (dy * 2 + dx);
+  const list = [];
+  for (let q = 1; q < 15; q++) {
+    let m = 0;
+    if (q & 1) m |= bit(0, 0) | bit(1, 0);
+    if (q & 2) m |= bit(0, 1) | bit(1, 1);
+    if (q & 4) m |= bit(2, 0) | bit(3, 0);
+    if (q & 8) m |= bit(2, 1) | bit(3, 1);
+    list.push([m, QUAD[q].codePointAt(0)]);
+  }
+  list.push([bit(3, 0) | bit(3, 1), 0x2582]);
+  list.push([bit(1, 0) | bit(1, 1) | bit(2, 0) | bit(2, 1) | bit(3, 0) | bit(3, 1), 0x2586]);
+  return list;
+})();
+const MISS = 200000;
+const cost = (a, b) => (a === null && b === null ? 0 : a === null || b === null ? MISS : (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
+function cellOfFine(units) {
+  const counts = new Map();
+  for (const u of units) { const k = u.color ? u.color.join(',') : 'none'; counts.set(k, (counts.get(k) || 0) + 1); }
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => (k === 'none' ? null : k.split(',').map(Number)));
+  const feature = ranked.findIndex(isFeature);
+  if (feature > 1) ranked.splice(1, 0, ranked.splice(feature, 1)[0]);
+  if (ranked.length === 1) return ranked[0] === null ? [0x20, DEFAULT, DEFAULT] : [0x2588, rgbInt(ranked[0]), DEFAULT];
+  const top = ranked.slice(0, 3);
+  const pairs = [];
+  for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) pairs.push([top[i], top[j]]);
+  if (feature >= 0) pairs.splice(1);
+  let best = null;
+  for (const [P, Q] of pairs) for (const [fg, bg] of [[P, Q], [Q, P]]) {
+    if (fg === null) continue;
+    for (const [mask, code] of FINE_MASKS) {
+      let err = 0;
+      for (const u of units) err += cost(u.color, mask & u.bit ? fg : bg);
+      if (!best || err < best.err) best = { err, code, fg, bg };
+    }
+  }
+  return [best.code, rgbInt(best.fg), best.bg === null ? DEFAULT : rgbInt(best.bg)];
+}
+function canvasToCellList(canvas, cols, rows, mode) {
+  const cells = [];
+  for (let r = 0; r < rows; r++) for (let cx = 0; cx < cols; cx++) {
+    const x = cx * 2, units = [];
+    if (mode === 'fine') {
+      for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) units.push({ bit: 1 << (dy * 2 + dx), color: canvas[r * 4 + dy]?.[x + dx] ?? null });
+      cells.push(cellOfFine(units)); continue;
+    }
+    if (mode === 'braille') {
+      for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) units.push({ bit: BRAILLE_BIT[dy][dx], color: canvas[r * 4 + dy]?.[x + dx] ?? null });
+    } else {
+      for (let qy = 0; qy < 2; qy++) for (let dx = 0; dx < 2; dx++) {
+        const a = canvas[r * 4 + qy * 2]?.[x + dx] ?? null, b = canvas[r * 4 + qy * 2 + 1]?.[x + dx] ?? null;
+        const pickRow = isFeature(a) ? a : isFeature(b) ? b : a && b ? (qy === 0 ? b : a) : a || b;
+        units.push({ bit: 1 << (qy * 2 + dx), color: pickRow });
+      }
+    }
+    cells.push(cellOf(units, mode));
+  }
+  return cells;
+}
+// blocks draw the greys lifted to 110 (1.2.19 '중간')
+const BLOCK_GREY_LO = 110;
+const liftBlock = c => {
+  if (!c || isFeature(c) || OUTLINE.has(c.join(',')) || Math.max(...c) - Math.min(...c) >= 14) return c;
+  const v = Math.round(BLOCK_GREY_LO + (255 - BLOCK_GREY_LO) * (c[0] / 255));
+  return [v, v, Math.min(255, v + 4)];
+};
+// a cell's glyph as its 2 x 4 sub-pixel mask (blocks), for drawing
+const MASK_OF = new Map();
+for (let q = 0; q < 16; q++) {
+  let m = 0; const bit = (dy, dx) => 1 << (dy * 2 + dx);
+  if (q & 1) m |= bit(0, 0) | bit(1, 0); if (q & 2) m |= bit(0, 1) | bit(1, 1); if (q & 4) m |= bit(2, 0) | bit(3, 0); if (q & 8) m |= bit(2, 1) | bit(3, 1);
+  MASK_OF.set(QUAD[q].codePointAt(0), m);
+}
+for (const [m, code] of FINE_MASKS) MASK_OF.set(code, m);
+MASK_OF.set(0x2588, 255); MASK_OF.set(0x20, 0);
+
+
+const $ = id => document.getElementById(id);
+/* ---- drawing ---- */
+const STAGE = () => getComputedStyle(document.documentElement).getPropertyValue('--stage').trim() || '#26313a';
+const colOf = c => c === DEFAULT || c === 0x01000000 ? null : '#' + c.toString(16).padStart(6, '0');   // (-1 here, 0x01000000 in render.js's cells)
+const PAD = 12;
+function sizeCanvas(cv, w, h) { if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; } }
+function drawDots(cv, rows, px) {
+  sizeCanvas(cv, W * px + PAD * 2, H * px + PAD * 2);
+  const g = cv.getContext('2d');
+  g.fillStyle = STAGE(); g.fillRect(0, 0, cv.width, cv.height);
+  rows.forEach((row, y) => [...row].forEach((k, x) => {
+    if (k === '.') return;
+    g.fillStyle = '#' + KEYS[k]; g.fillRect(PAD + x * px, PAD + y * px, px, px);
+  }));
+}
+const INK = [44, 44, 44];
+const inkMix = c => c.map((v, i) => Math.round(v + (INK[i] - v) * 0.62));
+function outlined(rows) {
+  const g = rows.map(row => [...row].map(k => (k === '.' ? null : KRGB[k])));
+  return g.map((row, y) => row.map((c, x) => {
+    if (c) return c;
+    for (const [dx, dy] of [[0, 1], [1, 0], [-1, 0], [0, -1]]) {
+      const k = rows[y + dy]?.[x + dx];
+      if (k && k !== '.') return 'NET'.includes(k) ? INK : inkMix(KRGB[k]);
+    }
+    return null;
+  }));
+}
+function drawCells(cv, rows, mode) {
+  let canvas = outlined(rows);
+  if (mode !== 'braille') canvas = canvas.map(r => r.map(liftBlock));
+  paintCells(cv, canvasToCellList(canvas, COLS, ROWS, mode), COLS, ROWS, mode);
+}
+// cells ([codepoint, fg, bg] per cell, as render.js packs them) drawn the way a terminal shows them
+function paintCells(cv, cells, cols, rows, mode) {
+  sizeCanvas(cv, cols * CW + PAD * 2, rows * CH + PAD * 2);
+  const g = cv.getContext('2d');
+  g.fillStyle = STAGE(); g.fillRect(0, 0, cv.width, cv.height);
+  cells.forEach(([cp, fg, bg], i) => {
+    const x0 = PAD + (i % cols) * CW, y0 = PAD + Math.floor(i / cols) * CH;
+    if (mode !== 'braille' && colOf(bg)) { g.fillStyle = colOf(bg); g.fillRect(x0, y0, CW, CH); }
+    const fc = colOf(fg); if (!fc) return;
+    g.fillStyle = fc;
+    const m = mode === 'braille' ? cp - 0x2800 : MASK_OF.get(cp) ?? 0;
+    for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) {
+      const sx = x0 + dx * CW / 2, sy = y0 + dy * CH / 4;
+      if (mode === 'braille') { if (cp !== 0x20 && m & BRAILLE_BIT[dy][dx]) { g.beginPath(); g.arc(sx + CW / 4, sy + CH / 8, 1.9, 0, 7); g.fill(); } }
+      else if (m & (1 << (dy * 2 + dx))) g.fillRect(sx, sy, CW / 2, CH / 4);
+    }
+  });
+}
+
+%%JS%%
+</script>

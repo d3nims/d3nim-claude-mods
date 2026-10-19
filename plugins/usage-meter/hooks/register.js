@@ -1348,7 +1348,7 @@ export function register(on) {
       const gap = sideRoom >= 40 ? 4 : 2
       const sideW = beside ? sideRoom - gap : cols
       // 좁은 옆자리(tight): 짧은 상태 문구, 토큰을 두 줄로, '지난 요청' 빼기 (카드 폭이 넘쳐 줄이 밀리지 않게)
-      // 더 좁으면(mini): 테두리 없이 상태 · 모델 · 시간만, 사용량은 막대와 %만
+      // 더 좁으면(mini): 테두리 없이 상태 · 모델 · 시간, 토큰은 입력 / 출력 / 캐시 세 줄, 사용량은 막대와 %만
       // 아주 좁으면(nano): 상태와 모델 이름만, 사용량은 이름과 %만
       const tight = sideW < 33
       const mini = beside && sideW < 22
@@ -1363,7 +1363,8 @@ export function register(on) {
       const routeTail = !rt || nano ? '' : routed && !tight ? ' ← ' + (prettyModel(rt.base) || '').split(' ')[0] : rt.mode === 'stopped' && !mini ? ' ✋' : ''
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
       const moodText = moodLabel(m, tight) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
-      let tokenLines = mini || nano ? [] : !t ? [' '] : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
+      // 테두리 없는 좁은 카드(mini)도 숫자는 입력 / 출력 / 캐시 세 줄로 (빼 두었더니 좁은 창에서 숫자가 안 보였다, 사용자 10/19)
+      let tokenLines = nano ? [] : !t ? (mini ? [] : [' ']) : mini ? t.tokens.split(' · ') : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
       // 메모리 줄: 카드 안 폭에 맞춰 줄인다. 사용량 표와 테리 높이 안에 안 들어가면 토큰 줄을 하나 뺀다 (좁은 카드의 '캐시' 줄)
       const memLine = memRow(Text, mini ? sideW : tight ? sideW - 2 : sideW - 4, 'tc-mem')
       if (memLine && (mini ? 0 : 2) + 2 + (nano ? 0 : 1) + tokenLines.length + 1 > TERRY_ROWS - BAND_NAMES.length) tokenLines = tokenLines.slice(0, -1)

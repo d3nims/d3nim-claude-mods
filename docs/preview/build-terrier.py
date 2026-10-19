@@ -1423,13 +1423,51 @@ CATCH_AT = 5
 # the run is PixelLab's gallop B, tidied (E, 2026-10-17): nine frames at 60 ms, frame 0 the old key pose 4, stretched
 # flat out in the air, which the flight at max holds
 RUN_MS = [60] * len(EDITS['run'])
-sets = {'walk': pack(edited('walk', RUN), [40] * len(RUN)), 'run': pack(edited('run', DASH, len(EDITS['run'])), RUN_MS), 'pant': pack(edited('pant', PANT), [70] * len(PANT)), 'sleep': pack(edited('sleep', SLEEP), [700, 700]),
+# the doze (2026-10-19): lying with his head up, it sinks forward 1, 2, 3 dots and jerks back up (motion/propose.py
+# drew it from the two still frames, now in terry-edits.json)
+SLEEP_MS = [1500, 800, 800, 600]
+# eating (2026-10-19): two bites, then the head up to lick the nose once, the tail tip wagging (motion/propose.py eat)
+EAT_MS = [160] * 8 + [180, 120, 150, 120, 160]
+sets = {'walk': pack(edited('walk', RUN), [40] * len(RUN)), 'run': pack(edited('run', DASH, len(EDITS['run'])), RUN_MS), 'pant': pack(edited('pant', PANT), [70] * len(PANT)), 'sleep': pack(edited('sleep', SLEEP * 2), SLEEP_MS),
         'sit': pack(edited('sit', SIT), [450, 160, 450, 160] * 2), 'wag': pack(edited('wag', WAG), [140, 90, 80, 90, 140, 90, 80, 90]), 'bark': pack(edited('bark', BARK[:1] + BARK[1:2] + BARK[1:3] + BARK[3:] + BARK[3:]), [150, 60, 120, 170, 70, 260]),
         'sniff': pack(edited('sniff', SNIFF), [65] * len(SNIFF)), 'dig': pack(edited('dig', DIG), [45] * len(DIG)), 'ask': pack(edited('ask', ASK), [500, 500]), 'sad': pack(edited('sad', SAD), [1200, 1200]),
         'droop': pack(edited('droop', DROOP), [1000, 1000]), 'pet': pack(edited('pet', PET), [55] * len(PET)), 'door': pack(edited('door', DOOR), [240, 150, 130, 150, 240, 150, 130, 150]),
-        'stretch': pack(edited('stretch', STRETCH), STRETCH_MS), 'eat': pack(edited('eat', EAT), [160] * len(EAT)), 'jump': pack(edited('jump', [OUTLINE_FN(f) for f in CATCH]), CATCH_MS)}
+        'stretch': pack(edited('stretch', STRETCH), STRETCH_MS), 'eat': pack(edited('eat', (EAT * 4)[:len(EAT_MS)]), EAT_MS), 'jump': pack(edited('jump', [OUTLINE_FN(f) for f in CATCH]), CATCH_MS)}
 sets['jump']['catchAt'] = CATCH_AT
 sets['run']['flyFrame'] = 0
+# max flies like Superman: the gallop's frame with all four feet off the ground, fore legs reaching and hind legs
+# stretched back (motion/propose.py fly; a proposal for now). A set of its own, so the card sets it down to the grass and
+# lifts it (as the run's frame its head went off the top), with the cape from its shoulders along its back.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'motion'))
+import propose as _propose
+_fly = _propose.fly()
+sets['fly'] = pack([OUTLINE_FN([list(r.ljust(CW, '.')[:CW]) for r in _fly] + [['.'] * CW for _ in range(CH - len(_fly))])], [1000])
+sets['fly']['cape'] = list(_propose.FLY_CAPE)
+# secondary motion from the motion rules (docs/preview/motion/): breathing while he rests, drawn by render.js
+_rules = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'motion', 'motion-rules.json')))
+# Only the trunk breathes (motion/breath.py): the back and flank swell and settle, the head and legs stay put. Sitting,
+# he follows the breath drawn into the sit (frames 0-3 the full back, 4-7 breathed out); that breath now runs on its
+# own clock, so the sit plays its full-backed frames and the breathed-out back comes from the rule like the others.
+# Kept as a patch per frame: render.js puts `patch[i]` = [first row, rows...] over frame i for the other half of the
+# breath, shown while `from` <= the breath's phase < `to`.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'motion'))
+from breath import breath_pair as _breath_pair
+sets['sit']['frames'][4:8] = sets['sit']['frames'][0:4]
+for _n, _b in _rules['breath'].items():
+    if _n.startswith('_') or _n not in sets:
+        continue
+    _patch = []
+    for _i, _plain in enumerate(sets[_n]['frames']):
+        _src = str(_i % 4) if _n == 'sit' else str(_i)
+        _keys = EDITS[_n][_src]   # raw keys, no outline
+        _img = [list(r.ljust(CW, '.')[:CW]) for r in _keys] + [['.'] * CW for _ in range(CH - len(_keys))]
+        _base, _alt = _breath_pair(_b, _img, EDITS)
+        _base, _alt = encode(despeckle(OUTLINE_FN(_base))), encode(despeckle(OUTLINE_FN(_alt)))
+        assert _base == _plain, (_n, _i)
+        _diff = [y for y in range(len(_alt)) if _alt[y] != _base[y]]
+        _patch.append([_diff[0]] + _alt[_diff[0]:_diff[-1] + 1] if _diff else [0])
+    _in = 'exhale_like' in _b   # the drawn frames are breathed in: the patch is the breath out, and the other way round
+    sets[_n]['breath'] = {'ms': _b['ms'], 'from': _b['inhale'] if _in else 0, 'to': 1 if _in else _b['inhale'], 'patch': _patch}
 
 
 def mouth_of(img):

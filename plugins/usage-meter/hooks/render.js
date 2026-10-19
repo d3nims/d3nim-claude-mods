@@ -389,6 +389,19 @@ const decode = rows => rows.map(row => [...row].map(c => (c === '.' ? null : PAL
 // two styles: 'classic' (drawn here, the default) and 'real' (poses traced from a drawn reference sheet; on hold)
 const SETS = {}
 for (const name of Object.keys(SPRITE.sets)) SETS[name] = { ...SPRITE.sets[name], frames: SPRITE.sets[name].frames.map(decode) }
+// Breathing while he rests (the motion rules, docs/preview/motion/): only the trunk swells and settles, the head and
+// legs stay put. The build's patch per frame gives the other half of the breath (breathed out for the sitting poses,
+// which are drawn full-backed; breathed in for the lying and standing ones).
+for (const set of Object.values(SETS)) {
+  const b = set.breath
+  if (!b) continue
+  set.breathFrames = set.frames.map((frame, i) => {
+    const out = frame.slice()
+    const [first, ...rows] = b.patch[i]
+    decode(rows).forEach((row, k) => { out[first + k] = row })
+    return out
+  })
+}
 const REAL = {}
 for (const name of Object.keys(SPRITE.real || {})) REAL[name] = { ...SPRITE.real[name], frames: SPRITE.real[name].frames.map(decode) }
 const SW = SETS.run.frames[0][0].length // sub-pixel width of the sprite
@@ -413,7 +426,8 @@ const liftBlock = c => {
   return [v, v, Math.min(255, v + 4)]
 }
 const QUAD_SETS = {}
-for (const name of Object.keys(SETS)) QUAD_SETS[name] = { ...SETS[name], frames: SETS[name].frames.map(f => f.map(row => row.map(liftBlock))) }
+const lifted = frames => frames && frames.map(f => f.map(row => row.map(liftBlock)))
+for (const name of Object.keys(SETS)) QUAD_SETS[name] = { ...SETS[name], frames: lifted(SETS[name].frames), breathFrames: lifted(SETS[name].breathFrames) }
 const setsFor = mode => (mode === 'braille' ? SETS : QUAD_SETS)
 export const DOG_ROWS = Math.ceil((ground + 1) / 4)
 export const DOG_COLS = Math.ceil(SW / 2)
@@ -588,6 +602,15 @@ const MOON_SMALL = [
   '..cccccc',
 ]
 
+// Breathing: one breath every `ms`, the breath in shorter than the breath out and the pause after it; the other half
+// of the breath shows while `from` <= its phase < `to`.
+function breathFrame(set, index, ms) {
+  const b = set.breath
+  if (!b || !set.breathFrames) return set.frames[index]
+  const phase = (ms % b.ms) / b.ms
+  return phase >= b.from && phase < b.to ? set.breathFrames[index] : set.frames[index]
+}
+
 // Blinking: about every 4.2 s the eye shuts for 140 ms, and every third time twice in a row. Asleep, it stays shut.
 const BLINK_EVERY = 4200
 function isBlinking(ms) {
@@ -648,18 +671,20 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   const style = runStyle(effort)
   const running = mood === 'run'
   const sets = mode !== 'braille' ? QUAD_SETS : date && date.style === 'real' ? { ...SETS, ...REAL } : SETS
-  const set = (running ? sets[style.set] : sets[MOOD_FRAMES[mood]]) || sets.sit
-  // flying, he holds the stretched-out flight pose of the gallop (legs reaching fore and aft) instead of striding
+  const flying = running && style.fly
+  const set = (flying && sets.fly) || (running ? sets[style.set] : sets[MOOD_FRAMES[mood]]) || sets.sit
+  // flying, he holds the flight pose (the build's own Superman frame, legs stretched fore and aft; without one, the
+  // gallop's stretched-out frame) instead of striding
   // catching: crouch while the frisbee comes, leap for it, land with it (the frame follows the throw, not a timer)
   const throwPhase = mood === 'catch' ? (ms / 1600) % 1 : 0
-  const index = running && style.fly ? set.flyFrame ?? FLY_FRAME
+  const index = flying ? (sets.fly ? 0 : set.flyFrame ?? FLY_FRAME)
     // (four frames: watching it come, a crouch, the leap held at the top, landed; the older three-frame set has no crouch)
     : mood === 'catch' && set.catchAt != null ? frameAt(set, throwPhase)
     : mood === 'catch' ? (set.frames.length >= 4 ? (throwPhase < 0.36 ? 0 : throwPhase < 0.44 ? 1 : throwPhase < 0.82 ? 2 : 3) : throwPhase < 0.42 ? 0 : throwPhase < 0.82 ? 1 : 2)
     : mood === 'stretch' ? pick(set, date && date.moodMs != null ? date.moodMs : ms) // from the start of the stretch
     : pick(set, running ? ms * style.speed : ms)
   const yawning = mood === 'stretch' && index >= 5 && index <= 7 // eyes shut through the yawn
-  let frame = closeEyes(set.frames[index], mood === 'sleep' || yawning || isBlinking(ms))
+  let frame = closeEyes(breathFrame(set, index, ms), mood === 'sleep' || yawning || isBlinking(ms))
   // fetching: he runs off to the right, then comes back the other way with a stick in his mouth
   const fetchPhase = mood === 'fetch' ? (ms / 3200) % 1 : 0
   const fetchBack = mood === 'fetch' && fetchPhase >= 0.5
@@ -868,15 +893,18 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   const lift = running && style.fly ? 5 + Math.round(Math.sin(t * 6)) : hop
   // the cape's run along his back, from the shoulders to the rump: a straight line between the top of his coat at each
   // end (a tuft standing above it is covered too), as [x, top, bottom] on the canvas. Its bottom ends on a cell's last
-  // row, so no cell is shared by the red and his coat (a cell shows one colour: shared, the cape broke into pieces)
+  // row, so no cell is shared by the red and his coat (a cell shows one colour: shared, the cape broke into pieces). One
+  // bottom for the whole cape: following the slope it dropped a whole cell (4 dots) at once and notched his body
   const capeBack = [], capeTail = []
+  const [capeX, capeLen] = set.cape || [CAPE_X, CAPE_BACK] // the flight set's own shoulders and back length
   if (running && style.fly) {
     const topAt = x => { let y = 6; while (y < frame.length && !frame[y][x]) y++; return y }
-    const y0 = topAt(CAPE_X), y1 = topAt(CAPE_X - CAPE_BACK)
-    for (let u = 0; u <= CAPE_BACK; u++) {
-      const x = CAPE_X - u
-      const line = Math.round(y0 + ((y1 - y0) * u) / CAPE_BACK) - lift
-      capeBack.push([dogX + x, Math.min(topAt(x) - lift, line), (line + 2) | 3])
+    const y0 = topAt(capeX), y1 = topAt(capeX - capeLen)
+    const lineAt = u => Math.round(y0 + ((y1 - y0) * u) / capeLen) - lift
+    const bottom = (Math.max(lineAt(0), lineAt(capeLen)) + 2) | 3
+    for (let u = 0; u <= capeLen; u++) {
+      const x = capeX - u
+      capeBack.push([dogX + x, Math.min(topAt(x) - lift, lineAt(u)), bottom])
     }
   }
   if (lift && running && style.fly) {
@@ -891,7 +919,7 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     }
     // the cape: lying on his back from the shoulders to the rump, then streaming back over his tail as a ribbon, waving
     // harder toward its free end (both drawn over him, below: behind him, his tail cut the ribbon off from his back)
-    const ax = dogX + CAPE_X
+    const ax = dogX + capeX
     const ay = capeBack[capeBack.length - 1][1]
     const L = 30
     for (let u = 0; u <= L; u++) {
@@ -902,7 +930,7 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
       const thick = Math.round(4 + 3 * k)
       for (let w = 0; w < thick; w++) {
         const c = w === 0 ? [244, 92, 96] : slope < -0.3 ? [150, 22, 34] : [214, 38, 48]
-        capeTail.push([ax - CAPE_BACK - u, top + w, c])
+        capeTail.push([ax - capeLen - u, top + w, c])
       }
     }
   }
