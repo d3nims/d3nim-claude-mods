@@ -45,9 +45,11 @@ let style = 'flame1' // 'flame1' (불꽃 밴드) | 'terry' (강아지 카드)
 let character = 'terry' // 카드의 주인공: 'terry' (강아지, /terry) | 'runner' (가방 멘 런너, /runner) | 'monk' (해골 수도승, /monk)
 let look = 'classic' // 테리 그림체: 'classic' (기본) | 'real' (참고 그림에서 따온 자세, 보류 중: /terry real 로만 켜짐)
 let mode = null // 고른 그림 방식: 'quad' (사분블록) | 'fine' (사분블록 + ▂▄▆, 가로 경계가 4단계로 매끈) | 'braille' (점자)
+// | 'font' (Lode Cells 글꼴: 터미널 픽셀로 그림, 카드만. 글꼴을 깔고 터미널 글꼴 목록에 넣어야 보임)
 // 안 골랐으면 테리는 점자(점 하나하나 점자에 맞춰 그림), 불꽃 밴드는 사분블록
 // 고른 방식이 없으면: 테리는 점자(점 하나하나 다듬은 그림), 런너·해골 수도승은 블록(옷·벽돌이 옛 게임처럼 또렷)
-const drawMode = () => mode ?? (style === 'terry' && character === 'terry' ? 'braille' : 'quad')
+// 글꼴 방식은 카드 그림에만 있어서 불꽃 밴드는 블록으로 그린다
+const drawMode = () => (mode === 'font' && style !== 'terry' ? 'quad' : mode ?? (style === 'terry' && character === 'terry' ? 'braille' : 'quad'))
 
 // 임계치 알림: 같은 단계는 한 번만
 const lastTier = new Map()
@@ -182,6 +184,20 @@ const moodLabel = (m, short) =>
 // 카드 그림: 테리 또는 해골 수도승 (카드·사용량 표·반응은 같다)
 const heroCells = (m, ms, drawWith, hour, cols, eff, date) =>
   character === 'terry' ? terryCells(m, ms, drawWith, hour, cols, eff, date) : lodeCells(character, m, ms, drawWith, cols, eff)
+// 카드 그림 한 장: 글꼴 방식은 hero-font.js 가 Lode Cells 글리프로(Raster 가 못 받는 글자라 글 줄로, 자기 칸만 다시 그림),
+// 나머지는 Raster 로
+const heroPicture = (elements, key, m, cols) => {
+  if (drawMode() !== 'font' || !elements.Client)
+    return elements.Raster({ key, columns: cols, rows: TERRY_ROWS, cells: heroCells(m, nowMs(), drawMode() === 'font' ? 'braille' : drawMode(), localHour(), cols, runEffort(), today()) })
+  const { moodMs, ...date } = today()
+  return elements.Client({
+    key,
+    module: './hero-font.js',
+    props: { hero: character, mood: m, effort: runEffort(), hour: localHour(), cols, startedAt, date: { ...date, moodSince: Date.now() - moodMs } },
+    width: cols,
+    height: TERRY_ROWS,
+  })
+}
 // 사다리 카드(런너·해골 수도승)의 말: 강아지에게만 맞는 말(멍멍, 꼬리, 킁킁, 원반, 밥)만 바꾼다
 const LODE_SHORT = { wag: '보고 있어요', bark: '알림!', sniff: '살피는 중', fetch: '가져오는 중', catch: '금괴 찾았다!', droop: '구멍에 빠짐', sad: '구멍에 빠짐', stretch: '몸 푸는 중', eat: '쉬는 중', door: '문 앞 대기', run: '달리는 중' }
 const LODE_TEXT = {
@@ -321,6 +337,7 @@ const guide = () =>
     '/terry quad     : 달리는 강아지, 꽉 찬 블록으로 그림 (블록용으로 그렸던 1.0.2 그림)',
     '/terry pane     : 테리를 옆 창에 따로 띄우기',
     '/terry fine     : 달리는 강아지, 촘촘한 블록으로 그림 (등선·배·머리 윤곽이 더 매끈)',
+    '/terry font     : 터미널 픽셀로 아주 곱게 그림 (Lode Cells 글꼴을 깔고 터미널 글꼴 목록에 넣어야 보임, 네모가 보이면 /terry braille)',
     '/terry run      : 20초 동안 달리는 모습 미리보기 (sit · wag · bark · happy · sleep 도 됨, stop 으로 끝내기)',
     '/terry run max  : 추론 강도별 달리기 미리보기 (low 걷기 · medium 빨리 걷기 · high 달리기 · xhigh 전력 질주 · max 날기)',
     '/terry sniff    : 도구별 동작 미리보기 (sniff 읽기 · dig 실행·고치기 · fetch 웹 · ask 허락 대기 · sad 실패)',
@@ -534,6 +551,7 @@ const openPane = $ => $.ui.open({ id: PANE, title: '테리' })
 
 // 같은 그림이면 그대로 두고, 바뀌었으면 타이머를 새로 건다. blit 이 거절되면(아직 안 그려졌을 수 있음) 몇 번 다시 시도한다.
 function runAnim($, requestId, key, columns, rows, build) {
+  if (drawMode() === 'font') return stopAnim(key) // hero-font.js 가 스스로 움직인다
   const id = [requestId, key, columns, rows, drawMode()].join('|')
   if (anims.get(key)?.id === id) return
   stopAnim(key)
@@ -1046,7 +1064,7 @@ export function register(on) {
     const savedHero = await $.store.get('character')
     character = savedHero === 'monk' || savedHero === 'runner' ? savedHero : 'terry'
     const savedMode = await $.store.get('mode')
-    mode = savedMode === 'braille' || savedMode === 'fine' || savedMode === 'quad' ? savedMode : null
+    mode = savedMode === 'braille' || savedMode === 'fine' || savedMode === 'quad' || savedMode === 'font' ? savedMode : null
     look = (await $.store.get('look')) === 'real' ? 'real' : 'classic'
     try {
       stretchDay = (await $.store.get('stretchDay')) ?? null
@@ -1293,7 +1311,7 @@ export function register(on) {
         $.ui.invalidate('ui.render')
         return { text: previewMood ? moodLabel(previewMood, false) + ' 모습을 20초 동안 보여 줄게요 (/terry stop 으로 끝내기)' : '미리보기를 끝냈어요' }
       }
-      if (arg === 'quad' || arg === 'braille' || arg === 'fine') {
+      if (arg === 'quad' || arg === 'braille' || arg === 'fine' || arg === 'font') {
         mode = arg
         await $.store.set('mode', mode)
       }
@@ -1306,10 +1324,11 @@ export function register(on) {
       await $.store.set('style', style)
       stopAnim()
       $.ui.invalidate('ui.render')
-      const way = drawMode() === 'quad' ? '사분블록(quad)' : drawMode() === 'fine' ? '촘촘한 블록(fine)' : '점자(braille)'
+      const way = drawMode() === 'quad' ? '사분블록(quad)' : drawMode() === 'fine' ? '촘촘한 블록(fine)' : drawMode() === 'font' ? '글꼴(font)' : '점자(braille)'
       const lookText = name === 'terry' ? ' · 그림체: ' + (look === 'classic' ? '예전(classic)' : '새(real)') : ''
       const who = { monk: '해골 수도승(monk)', runner: '가방 멘 런너(runner)', terry: '강아지(terry)', flame1: '불꽃 밴드(flame1)' }[name]
-      return { text: who + ' 화면으로 바꿨어요 · 그림 방식: ' + way + lookText }
+      const fontNote = drawMode() === 'font' ? ' · Lode Cells 글꼴이 있어야 보여요 (네모나 물음표가 보이면 /' + name + ' braille)' : ''
+      return { text: who + ' 화면으로 바꿨어요 · 그림 방식: ' + way + lookText + fontNote }
     })
   }
 
@@ -1335,7 +1354,7 @@ export function register(on) {
       key: 'pane',
       flexDirection: 'column',
       children: [
-        Raster({ key: 'pane-terry', columns: cols, rows: TERRY_ROWS, cells: scene() }),
+        heroPicture(elements, 'pane-terry', m, cols),
         Text({ key: 'pane-mood', bold: true, color: m === 'run' ? '#7fb2ff' : m === 'happy' || m === 'catch' || m === 'pet' ? '#9be08a' : undefined, children: [moodLabel(m, false)] }),
         Text({ key: 'pane-use', dimColor: true, children: [BAND_NAMES.map((n, i) => n + ' ' + show(vals[i])).join(' · ')] }),
       ],
@@ -1464,7 +1483,7 @@ export function register(on) {
           })
         }),
       })
-      const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: heroCells(m, nowMs(), drawMode(), localHour(), terryCols, runEffort(), today()) })
+      const dog = heroPicture(elements, 'terry', m, terryCols)
       const hint = hintRow($, await autoHint($), Box, Text, Button, cols)
       const saving = savingRow(await autoSaving($), Text, cols)
       const extras = [hint, saving].filter(Boolean)

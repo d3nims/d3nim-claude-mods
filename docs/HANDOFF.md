@@ -299,7 +299,16 @@ claude plugin update usage-meter@d3nim-claude-mods
   - 보기: `node docs/preview/lode/play.mjs [runner|monk|terry] [mood] [effort]` (WaveTerm 안에서).
   - 시험 장치: xterm.js 6.0.0 + addon-webgl 0.19.0 을 Windows Chrome headless 로 띄워 WaveTerm 과 같은 화면을 찍음(term.open 전에 'W' 글꼴을 먼저 불러야 칸이 8px).
   - 2배 도트 편집기 https://claude.ai/artifact/YRPp1sdui1VZEivLnyrDeZ (`docs/preview/terry2x-editor-template.html` + `terry2x-editor-data.json`), `docs/preview/lode/terry2x.mjs import <폴더>` → `hooks/terry-2x-data.js` (손본 장만 Scale2x 대신).
-  - 다음: 플러그인 그림 방식 `font`(글꼴이 없으면 점자로), 동료용 글꼴 설치 스크립트.
+  - 다음: 플러그인 그림 방식 `font`(글꼴이 없으면 점자로), 동료용 글꼴 설치 스크립트. → 1.2.22
+
+### usage-meter 1.2.22 (2026-10-21): /terry font
+- `/terry font` (`/runner font`, `/monk font`): 카드 그림을 Lode Cells 글리프로. 기본은 그대로 점자이고, 고른 사람만. 불꽃 밴드는 글꼴 방식이 없어 블록(`drawMode`).
+- **Raster 로는 못 그림:** Raster 는 칸마다 'printable width-1 BMP' 글자만 받고(엔진 코드 `cell N holds code point …, beyond the Basic Multilingual Plane`), 글리프는 U+100000~ 라 거절. BMP 에 옮길 자리도 없음(좁은 BMP 글자는 다 합쳐도 약 1.8만, PUA 6,400 은 Hack Nerd Font 아이콘이 먼저). 그래서 Text 로 그림: Text 는 U+10A000 을 받고 엔진 너비(Bun.stringWidth, ambiguousIsNarrow true)도 1칸.
+- **Client 로 그림:** Text 는 blit 이 없어 장마다 다시 그려야 함. `$.ui.invalidate` 로 카드 전체를 다시 그리면 CPU 가 한 코어의 약 74%(점자 약 12~30%). 그래서 `hooks/hero-font.js` 를 Client 모듈로 띄워(register.js `heroPicture`) 자기 칸만 60ms 마다, 그림이 바뀐 때만 다시 그림 → 앉기 약 20%, 달리기 약 32% (pty 로 띄운 Claude Code 에서 5초 CPU 측정).
+- 가볍게: `lode-fine.js` `cellsOf` 가 한 번 본 줄은 그대로 씀(줄 픽셀 해시) + 색 거리 기억. 달은 둘째 장면(noMoon)을 그리지 않고 `moon.under`(달이 덮은 점)로 다시 깜(픽셀 차이: 달 상자 가장자리 낙엽 몇 점).
+- **모듈 파일 1MB 제한:** 엔진은 1MB 넘는 모듈을 안 읽음(`is over 1048576 bytes and was not read`). 글리프 표를 hex 목록(1.2MB) → base64 한 줄(글리프당 32바이트; lode 약 0.9MB, terry 약 0.78MB)로. `packKeys`/`unpackKeys`(lode-fine.js), 첫 사용 때 풀어서 글꼴을 안 쓰면 시작이 느려지지 않음. 글리프를 더 모아 1MB 를 넘기면 파일을 나눌 것.
+- **확인:** pty 로 `claude --plugin-dir plugins/usage-meter` 를 띄워 `/terry font` 출력을 받고(글리프 그대로 나감, 바뀌거나 거절 없음), xterm.js 6 + webgl 하네스에 다시 그려 찍음(깨짐·경계 줄 없음). WaveTerm 실기 확인은 사용자.
+- **글꼴 배포:** `plugins/usage-meter/fonts/LodeCells.ttf` (= LodeCells7, 'Lode Cells' 7.0) + `install-font.ps1` (내 계정 글꼴 폴더에 `LodeCells-<버전>.ttf`, HKCU Fonts 'Lode Cells (TrueType)', 옛 LodeCells*.ttf 삭제(쓰는 중이면 남김), WaveTerm `term:fontfamily` 에 ', Lode Cells' 추가(백업 `settings.json.bak-lodecells`), 크기 14·Hack 이 아니면 알림). README 의 `irm … | iex` 한 줄은 GitHub main 에서 스크립트와 글꼴을 받음. **글리프 표를 다시 모으면(harvest) 글꼴과 스크립트의 `$Version` 도 같이 올릴 것** (표와 글꼴이 어긋나면 엉뚱한 조각이 나옴).
 
 ### auto-model 0.5.10 (2026-10-17): 1주 로그 검토 뒤 고침, 최신 모델, 단어 후보
 - 1주 검토(10/12~17, 324턴): 전환 0번(잘못 바꾼 것 없음). 쉬고 와서 압축 9번 Sonnet 약 $2.5 vs Opus 약 $8. 기억 질문 shadow 23번, 켰다면 +$2.3(1.3%)뿐이고 작은 모델이 '고장'·'국장 확인' 을 가볍다고 봄 → light 는 계속 꺼 둠. 일꾼 켜짐이지만 0번, 놓친 후보 0번.

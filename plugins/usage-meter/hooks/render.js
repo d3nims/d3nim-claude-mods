@@ -861,19 +861,24 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     left -= left % pw // on whole quarter blocks, so no art pixel is split across two
     top -= top % ph
     const twinkle = Math.floor(t * 1.6) % 2
-    // (where the moon is, for terry-fine.js to draw it again at its own finer pixels; opts.noMoon: leave it out)
+    // (where the moon is, for terry-fine.js to draw it again at its own finer pixels)
     if (!isDay) moon = { left, top, w, h: art.length * ph, kind: art === MOON_FULL ? 'full' : art === MOON_ART ? 'crescent' : 'small' }
-    if (!isDay && opts.noMoon) art = []
-    else if (!isDay && mode === 'braille') { // a dot is square: the moon at a dot a pixel
+    if (!isDay && mode === 'braille') { // a dot is square: the moon at a dot a pixel
       const shape = moonShape(moon.kind, w, moon.h)
       art = Array.from({ length: moon.h }, (_, y) => [...shape.slice(y * w, (y + 1) * w)].map(v => '.cs'[v]).join(''))
       pw = ph = 1
     }
+    // (opts.track: what each moon pixel covered, so terry-fine.js can lay its finer moon without drawing the sky again)
+    if (moon && opts.track) moon.under = new Map()
     art.forEach((row, y) => [...row].forEach((ch, x) => {
       if (ch === '.' || ch === ' ') return
       if ((ch === 'r' && twinkle) || (ch === 'R' && !twinkle)) return
       const c = ch === 'h' ? look.hi : ch === 'c' || ch === 'y' ? look.core : ch === 'r' || ch === 'R' ? look.ray || look.rim : look.rim
-      for (let i = 0; i < pw; i++) for (let k = 0; k < ph; k++) put(left + x * pw + i, top + y * ph + k, c)
+      for (let i = 0; i < pw; i++) for (let k = 0; k < ph; k++) {
+        const X = left + x * pw + i, Y = top + y * ph + k
+        if (moon?.under && canvas[Y] && X >= 0 && X < TW) moon.under.set(Y * TW + X, [canvas[Y][X], c])
+        put(X, Y, c)
+      }
     }))
   }
 

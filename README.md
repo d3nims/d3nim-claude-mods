@@ -79,9 +79,23 @@ claude plugin install usage-meter@d3nim-claude-mods
 | `/terry braille` · `/terry quad` | 그림 방식 바꾸기 (`/flame1` 도 같음). 테리는 점자(`braille`)가 기본이고 점 하나하나 다듬은 그림이에요. `quad` · `fine` 은 같은 그림을 블록으로 그리고, 칸마다 색이 둘뿐이라 회색을 조금 밝혀 얼룩지지 않게 해요 |
 | `/runner` | 테리 대신 가방 멘 런너가 사다리를 오르고 줄을 건너요. 해골 수도승이 뒤쫓아 오고, 땅을 팔 땐 레이저를 쏴요. `/terry` 명령을 그대로 쓰고, `/terry` 로 돌아와요 |
 | `/monk` | 테리 대신 해골 수도승이 사다리를 올라요 |
+| `/terry font` | 터미널 픽셀로 아주 곱게 (Lode Cells 글꼴 필요, 아래 '더 곱게') |
 | `/terry help` | 사용법 |
 
 테리는 평소엔 앉아서 숨 쉬며 꼬리를 살랑이다가, 입력하는 동안 혀를 내밀고 꼬리를 흔들고, 엔터를 치면 응답이 끝날 때까지 달리고, 다 끝나면 헥헥거리고, 3분 동안 조용하면 꾸벅꾸벅 졸아요. 쉬는 동안엔 몸통이 숨을 쉬고, 뛰거나 짖으면 귀가 한 박자 늦게 따라와요. 하늘은 실제 시계를 따라 낮엔 해, 밤엔 둥근 초승달과 별이 뜨고, 날짜를 따라 봄엔 꽃잎, 여름밤엔 반딧불, 가을엔 낙엽, 겨울엔 눈이 내려요. 12/31 과 1/1 밤엔 불꽃놀이도 터져요.
+
+### 더 곱게: `/terry font` (WaveTerm)
+
+터미널 칸 하나하나를 글꼴 조각으로 채워서, 테리를 화면 픽셀 그대로 그려요. 점자보다 훨씬 매끈하고, 칸마다 세 가지 색까지 써요. 우리가 만든 **Lode Cells** 글꼴이 있어야 보여요.
+
+1. Windows PowerShell 에서 한 줄 실행 (글꼴 설치, 내 계정에만 등록, WaveTerm 글꼴 목록에 추가):
+   ```powershell
+   irm https://raw.githubusercontent.com/d3nims/d3nim-claude-mods/main/plugins/usage-meter/fonts/install-font.ps1 | iex
+   ```
+2. WaveTerm 을 다시 켜요 (열린 터미널은 같이 닫혀요).
+3. Claude Code 에서 `/terry font` (`/runner font` · `/monk font` 도 돼요). 네모나 물음표가 보이면 글꼴이 안 잡힌 거라 `/terry braille` 로 돌아가요.
+
+그림은 WaveTerm 기본 글꼴(Hack) 14 크기, 화면 배율 100% 에 맞춰 잘랐어요. 다른 글꼴·크기에선 틈이 보일 수 있어요. 점자보다 CPU 를 조금 더 써요.
 
 ### 색이 이상하게 보이면
 

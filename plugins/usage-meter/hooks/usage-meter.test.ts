@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import HeroFont from './hero-font.js'
 
 // What the band is asked to draw with: a terminal 80 columns wide, no survey in the way
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80 } as never
@@ -165,6 +166,40 @@ test('/runner puts the backpacked runner on the card, climbing while Claude work
   await $.command.run({ command: 'terry', args: 'stop' } as never)
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: /^앉아서 기다리는 중$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+// what hero-font.js (the font card's Client module) draws for these props, as one string
+function fontText(props: unknown): string {
+  const el = (type: string) => (p: any) => ({ type, ...p })
+  const surface = { elements: { Box: el('Box'), Text: el('Text') }, state: undefined, every: () => () => {}, setState: () => {} }
+  const flat = (n: any): string => (typeof n === 'string' ? n : (n.children ?? []).map(flat).join(''))
+  return flat(HeroFont(props as never, surface as never))
+}
+
+test('/terry font draws him as rows of Lode Cells glyphs instead of a Raster, the flames stay blocks, and /terry braille goes back', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  const res = (await $.command.run({ command: 'terry', args: 'font' } as never)) as { text: string }
+  expect(res.text).toMatch(/글꼴\(font\)/)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Raster', key: 'terry' })).toBeUndefined()
+  // his glyphs live from U+10A000 (Supplementary Private Use Area-B), which a Raster refuses: hero-font.js draws them as text
+  const client = (await ui.find({ type: 'Client', key: 'terry' })) as any
+  expect(client?.props?.props).toMatchObject({ hero: 'terry', mood: 'sit' })
+  expect(fontText(client.props.props)).toMatch(/[\u{10A000}-\u{10FFFD}]/u)
+  await $.command.run({ command: 'runner', args: '' } as never)
+  await ui.redraw()
+  const ladder = (await ui.find({ type: 'Client', key: 'terry' })) as any
+  expect(ladder?.props?.props?.hero).toBe('runner')
+  expect(fontText(ladder.props.props)).toMatch(/[\u{100000}-\u{109FFF}]/u)
+  await $.command.run({ command: 'flame1', args: '' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Raster', key: 'band' })).toBeDefined()
+  await $.command.run({ command: 'terry', args: 'braille' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Raster', key: 'terry' })).toBeDefined()
   await ui.unmount()
 })
 

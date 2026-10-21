@@ -7,10 +7,11 @@ import GLYPHS from './terry-glyphs.js'
 import FINE2X from './terry-2x-data.js'
 import SPRITE from './terrier-data.js'
 import { terryScene, TERRY_ROWS, writeText, MOON, moonShape } from './render.js'
-import { CW, CH, cellsOf, cellList, glyphTable } from './lode-fine.js'
+import { CW, CH, cellsOf, cellList, glyphTable, unpackKeys } from './lode-fine.js'
 
 export const TERRY_GLYPH_BASE = 0x10a000 // after the ladder card's glyphs, in the same font
-const glyph = glyphTable(GLYPHS, TERRY_GLYPH_BASE)
+let table = null // unpacked on first use (see lode-fine.js)
+const glyph = (mask, over) => (table ??= glyphTable(unpackKeys(GLYPHS), TERRY_GLYPH_BASE))(mask, over)
 const rgbInt = c => (c ? (c[0] << 16) | (c[1] << 8) | c[2] : -1)
 
 // Scale2x (EPX): each pixel becomes 2 x 2, a corner taking its two neighbours' colour where they agree (and the
@@ -60,13 +61,17 @@ function layIn(two, w2, h2, dog, over, behind, rows) {
   return out
 }
 
-// The moon again at the finer pixels (half a dot): render.js's moonShape at twice its size
-function layMoon(two, w2, moon, behind) {
+// The moon again at the finer pixels (half a dot): render.js's moonShape at twice its size. Off the finer shape each
+// pixel is its dot unscaled (Scale2x would have rounded the card's moon into the sky beside it), and a dot the card's
+// moon drew (and nothing drew over since) shows what it covered (scene.moon.under: the sky, a star, a leaf)
+function layMoon(two, w2, moon, canvas, w) {
   const L = moon.left * 2, T = moon.top * 2, W = moon.w * 2, H = moon.h * 2
   const shape = moonShape(moon.kind, W, H), col = [0, rgbInt(MOON.core), rgbInt(MOON.rim)]
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = (T + y) * w2 + L + x
-    two[i] = shape[y * W + x] ? col[shape[y * W + x]] : behind[i]
+    if (shape[y * W + x]) { two[i] = col[shape[y * W + x]]; continue }
+    const X = (L + x) >> 1, Y = (T + y) >> 1, was = moon.under.get(Y * w + X)
+    two[i] = rgbInt(was && canvas[Y][X] === was[1] ? was[0] : canvas[Y][X])
   }
 }
 
@@ -82,7 +87,7 @@ export function terryFineScene(mood, ms, hour = 12, columns, effort = 'high', da
     const behind = scale2x(flat(terryScene(mood, ms, 'braille', hour, columns, effort, date, { noDog: true }).canvas, w, h), w, h)
     two = layIn(two, w2, h * 2, dog, scene.over, behind, rows)
   }
-  if (scene.moon) layMoon(two, w2, scene.moon, scale2x(flat(terryScene(mood, ms, 'braille', hour, columns, effort, date, { noMoon: true }).canvas, w, h), w, h))
+  if (scene.moon) layMoon(two, w2, scene.moon, canvas, w)
   const W = columns * CW, H = TERRY_ROWS * CH
   const px = new Int32Array(W * H)
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) px[y * W + x] = two[(y >> 1) * w2 + (x >> 1)]

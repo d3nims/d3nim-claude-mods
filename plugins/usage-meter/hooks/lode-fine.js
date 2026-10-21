@@ -177,7 +177,18 @@ export function fineScene(hero, mood, ms, columns, effort = 'high') {
 // ---- cells: two colours each and which pixels take the first -----------------------------------------------------
 const BG_GUESS = [24, 24, 30] // what a terminal background looks like, to weigh empty pixels against colours
 const rgb = c => (c < 0 ? BG_GUESS : [(c >> 16) & 255, (c >> 8) & 255, c & 255])
-const dist = (a, b) => { const p = rgb(a), q = rgb(b); return (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2 }
+const distOf = (a, b) => { const p = rgb(a), q = rgb(b); return (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2 }
+// remembered: a card has a few dozen colours, and the row search below asks for the same pairs over and over
+const distMemo = new Map()
+const dist = (a, b) => {
+  const k = (a + 2) * 16777219 + b + 2
+  let d = distMemo.get(k)
+  if (d === undefined) {
+    if (distMemo.size > 200000) distMemo.clear()
+    distMemo.set(k, d = distOf(a, b))
+  }
+  return d
+}
 
 // A cell shows two colours of its own, its background and its glyph's, and a third borrowed from the cell on its left:
 // that cell's glyph may reach on into this one (the terminal draws a glyph wider than its cell over the next cell;
@@ -197,6 +208,11 @@ export function cellsOf(scene, columns, rows) {
   const { px, W } = scene
   const out = []
   for (let cy = 0; cy < rows; cy++) {
+    // a row of pixels seen before (most of the card stands still from one frame to the next) gives the same cells
+    const key = rowKey(px, cy * CH * W, CH * W, columns)
+    const seen = rowMemo.get(key)
+    if (seen) { out.push(...seen); continue }
+    const start = out.length
     // each cell's colours and how many pixels of each
     const counts = []
     for (let cx = 0; cx < columns; cx++) {
@@ -271,8 +287,21 @@ export function cellsOf(scene, columns, rows) {
       }
       out.push({ mask: mask.map(w => w >>> 0), over, fg, bg })
     }
+    if (rowMemo.size > 4000) rowMemo.clear()
+    rowMemo.set(key, out.slice(start))
   }
   return out
+}
+const rowMemo = new Map()
+// a row's pixels as two 32-bit hashes (FNV-1a and a multiply-xor), and the row's width
+function rowKey(px, from, n, columns) {
+  let a = 0x811c9dc5, b = 0x9e3779b9
+  for (let i = from; i < from + n; i++) {
+    const v = px[i]
+    a = Math.imul(a ^ v, 0x01000193)
+    b = Math.imul(b ^ (v >>> 16) ^ (v << 16), 0x85ebca6b) ^ (b >>> 13)
+  }
+  return (a >>> 0).toString(36) + '.' + (b >>> 0).toString(36) + '.' + columns
 }
 /** a glyph's key: its own pixels (32 hex digits), then, if it reaches on, the next cell's (32 more) */
 export const keyOf = (mask, over) => {
@@ -281,6 +310,45 @@ export const keyOf = (mask, over) => {
 }
 
 // ---- glyphs: the gathered masks, in the font's order ---------------------------------------------------------------
+// The lists are kept as base64, 32 bytes a glyph (its 8 words, little-endian; the next cell's 4 are 0 when it reaches
+// no further): the engine will not read a module file over 1 MB, and the hex keys took 1.2 MB a card
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+/** a list of glyph keys as that base64 */
+export function packKeys(keys) {
+  const bytes = new Uint8Array(keys.length * 32)
+  keys.forEach((k, g) => {
+    for (let i = 0; i < 8; i++) {
+      const w = parseInt(k.slice(i * 8, i * 8 + 8) || '0', 16)
+      for (let b = 0; b < 4; b++) bytes[g * 32 + i * 4 + b] = (w >>> (b * 8)) & 255
+    }
+  })
+  let out = ''
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0)
+    out += B64[n >> 18] + B64[(n >> 12) & 63] + (i + 1 < bytes.length ? B64[(n >> 6) & 63] : '=') + (i + 2 < bytes.length ? B64[n & 63] : '=')
+  }
+  return out
+}
+/** packKeys back to the keys (keyOf's spelling) */
+export function unpackKeys(b64) {
+  const val = new Map([...B64].map((c, i) => [c, i]))
+  const bytes = new Uint8Array(Math.floor(b64.replace(/=+$/, '').length * 3 / 4))
+  for (let i = 0, o = 0; i < b64.length; i += 4) {
+    const n = (val.get(b64[i]) << 18) | (val.get(b64[i + 1]) << 12) | ((val.get(b64[i + 2]) ?? 0) << 6) | (val.get(b64[i + 3]) ?? 0)
+    for (const v of [n >> 16, (n >> 8) & 255, n & 255]) if (o < bytes.length) bytes[o++] = v & 255
+  }
+  const keys = []
+  for (let g = 0; g < bytes.length / 32; g++) {
+    const words = []
+    for (let i = 0; i < 8; i++) {
+      const j = g * 32 + i * 4
+      words.push((bytes[j] | (bytes[j + 1] << 8) | (bytes[j + 2] << 16) | (bytes[j + 3] << 24)) >>> 0)
+    }
+    keys.push(keyOf(words.slice(0, 4), words.slice(4)))
+  }
+  return keys
+}
+
 const pop = v => { v -= (v >>> 1) & 0x55555555; v = (v & 0x33333333) + ((v >>> 2) & 0x33333333); return (((v + (v >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24 }
 /** a lookup for a gathered list of glyph keys laid out in the font from `base`: (mask, over) -> codepoint; a cell
  * never gathered takes the nearest glyph (fewest pixels different) */
@@ -304,7 +372,8 @@ export function glyphTable(keys, base) {
     return base + best
   }
 }
-const lodeGlyph = glyphTable(GLYPHS, GLYPH_BASE)
+let lodeTable = null // unpacked on first use: a session that never draws with the font does not pay for it
+const lodeGlyph = (mask, over) => (lodeTable ??= glyphTable(unpackKeys(GLYPHS), GLYPH_BASE))(mask, over)
 
 /** cellsOf's cells as [codepoint, fg, bg] (render.js's DEFAULT for the terminal's own colour), through `glyph` */
 export function cellList(cells, glyph) {
