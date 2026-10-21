@@ -174,7 +174,7 @@ export function canvasToCells(canvas, cols, rows, mode) {
 }
 
 /** As canvasToCells, but the [codePoint, fg, bg] list itself, so text can be written over some cells first. */
-function canvasToCellList(canvas, cols, rows, mode) {
+export function canvasToCellList(canvas, cols, rows, mode) {
   const cells = []
   for (let r = 0; r < rows; r++) {
     for (let cx = 0; cx < cols; cx++) {
@@ -205,7 +205,7 @@ function canvasToCellList(canvas, cols, rows, mode) {
 }
 
 /** Writes ASCII `text` into a cell list (cols wide) at cell x, row y: each character keeps its cell's colour behind it. */
-function writeText(cells, cols, x, y, text, fg) {
+export function writeText(cells, cols, x, y, text, fg) {
   for (let i = 0; i < text.length; i++) {
     const cx = x + i
     if (cx < 0 || cx >= cols) continue
@@ -548,7 +548,7 @@ const PEBBLE = [150, 146, 136]
 const SUN_DAWN = { hi: [255, 236, 222], core: [255, 192, 168], rim: [238, 124, 140], ray: [246, 138, 156] }
 const SUN_DAY = { hi: [255, 252, 214], core: [255, 226, 92], rim: [255, 168, 46], ray: [255, 204, 84] }
 const SUN_DUSK = { hi: [255, 222, 164], core: [255, 162, 80], rim: [226, 88, 48], ray: [240, 112, 62] }
-const MOON = { core: [240, 236, 214], rim: [204, 199, 176] }
+export const MOON = { core: [240, 236, 214], rim: [204, 199, 176] }
 const STAR = [[226, 230, 255], [150, 160, 210]]
 // The sun and the moon, drawn by hand on square pixels: a terminal cell is twice as tall as it is wide, so in quad
 // mode one art pixel is 2 x 2 sub-pixels (a whole quarter-block pair), in braille 1 x 1 dot.
@@ -602,6 +602,28 @@ const MOON_SMALL = [
   '..cccccc',
 ]
 
+// The moon cut from true circles, W x H pixels of a dot (braille) or half a dot (terry-fine.js): the crescent two
+// circles, the inner one set off toward the opening and turned 18 degrees up, with a thin shade along its curve; the
+// full moon a circle with a few soft craters. 0 sky, 1 the body, 2 the shade. (The art above, in pixels one dot wide
+// and two tall, stays for the quad card, whose quarter blocks are that shape.)
+export function moonShape(kind, W, H) {
+  const out = new Uint8Array(W * H), cx = W / 2, cy = H / 2
+  const k = kind === 'full' ? W / 28 : W / 26
+  const R = 12.6 * k, d = 7 * k, r = 11.4 * k, shade = 1.3 * Math.max(k, 0.77), a = (18 * Math.PI) / 180
+  const ix = cx + d * Math.cos(a), iy = cy - d * Math.sin(a)
+  const craters = [[10.4, 9.2, 2.8], [18, 16.8, 3.2], [12.8, 20.4, 2]].map(c => c.map(v => v * k))
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const px = x + 0.5, py = y + 0.5
+    if (kind === 'full') {
+      if (Math.hypot(px - cx, py - cy) <= 13 * k) out[y * W + x] = craters.some(([ax, ay, ar]) => Math.hypot(px - ax, py - ay) <= ar) ? 2 : 1
+      continue
+    }
+    const inner = Math.hypot(px - ix, py - iy)
+    if (Math.hypot(px - cx, py - cy) <= R && inner > r) out[y * W + x] = inner < r + shade ? 2 : 1
+  }
+  return out
+}
+
 // Breathing: one breath every `ms`, the breath in shorter than the breath out and the pause after it; the other half
 // of the breath shows while `from` <= its phase < `to`.
 function breathFrame(set, index, ms) {
@@ -650,12 +672,16 @@ function closeEyes(frame, shut) {
  */
 /** Terry's whole picture as sub-pixel colours (canvas: rows*4 lines of columns*2 [r,g,b] or null) plus the text marks
  *  drawn over it (! * ? z) in cell coordinates. The terminal turns it into cells; the web view draws it directly. */
-export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high', date = null) {
+export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high', date = null, opts = {}) {
 
   const TW = columns * 2
   const H = TERRY_ROWS * 4
   const canvas = Array.from({ length: H }, () => Array(TW).fill(null))
-  const put = (x, y, c) => { if (x >= 0 && x < TW && y >= 0 && y < H) canvas[y][x] = c }
+  // (opts.track: mark what is drawn over Terry, so terry-fine.js can lay a finer Terry under it; opts.noDog: leave
+  // him out, for what is behind him)
+  const over = opts.track ? new Uint8Array(TW * H) : null
+  let afterDog = false
+  const put = (x, y, c) => { if (x >= 0 && x < TW && y >= 0 && y < H) { canvas[y][x] = c; if (afterDog && over) over[y * TW + x] = 1 } }
   const PX = mode === 'braille' ? 1 : 2
   // a prop from PROPS with its bottom-left pixel at (left, bottom)
   const prop = (name, left, bottom) => {
@@ -672,7 +698,8 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   const running = mood === 'run'
   const sets = mode !== 'braille' ? QUAD_SETS : date && date.style === 'real' ? { ...SETS, ...REAL } : SETS
   const flying = running && style.fly
-  const set = (flying && sets.fly) || (running ? sets[style.set] : sets[MOOD_FRAMES[mood]]) || sets.sit
+  const setName = (flying && sets.fly && 'fly') || (running ? (sets[style.set] && style.set) : (sets[MOOD_FRAMES[mood]] && MOOD_FRAMES[mood])) || 'sit'
+  const set = sets[setName]
   // flying, he holds the flight pose (the build's own Superman frame, legs stretched fore and aft; without one, the
   // gallop's stretched-out frame) instead of striding
   // catching: crouch while the frisbee comes, leap for it, land with it (the frame follows the throw, not a timer)
@@ -821,18 +848,27 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
 
   // the sun or the moon, over the season's petals, leaves and snow (none in a narrow window; the stars stay)
   // (not while the '?' bubble is up: it sits in the same patch of sky)
+  let moon = null
   if (skyW >= 10 && mood !== 'ask' && mood !== 'door') {
     const px = mode === 'braille' ? 1 : 2 // one sun pixel, in sub-pixels each way
     const big = skyW >= SUN_ART[0].length * px + 2
-    const art = isDay ? (big ? SUN_ART : SUN_SMALL) : date && date.holiday === 'chuseok' ? MOON_FULL : big ? MOON_ART : MOON_SMALL
-    const pw = isDay ? px : 1 // the moon's pixels are finer: one sub-pixel wide,
-    const ph = isDay ? px : 2 // two tall
+    let art = isDay ? (big ? SUN_ART : SUN_SMALL) : date && date.holiday === 'chuseok' ? MOON_FULL : big ? MOON_ART : MOON_SMALL
+    let pw = isDay ? px : 1 // the moon's pixels are finer: one sub-pixel wide,
+    let ph = isDay ? px : 2 // two tall
     const w = art[0].length * pw
     let left = Math.min(TW - 1 - w, Math.max(skyX0, bx - Math.floor(w / 2)))
     let top = Math.max(0, by - Math.floor((art.length * ph) / 2))
     left -= left % pw // on whole quarter blocks, so no art pixel is split across two
     top -= top % ph
     const twinkle = Math.floor(t * 1.6) % 2
+    // (where the moon is, for terry-fine.js to draw it again at its own finer pixels; opts.noMoon: leave it out)
+    if (!isDay) moon = { left, top, w, h: art.length * ph, kind: art === MOON_FULL ? 'full' : art === MOON_ART ? 'crescent' : 'small' }
+    if (!isDay && opts.noMoon) art = []
+    else if (!isDay && mode === 'braille') { // a dot is square: the moon at a dot a pixel
+      const shape = moonShape(moon.kind, w, moon.h)
+      art = Array.from({ length: moon.h }, (_, y) => [...shape.slice(y * w, (y + 1) * w)].map(v => '.cs'[v]).join(''))
+      pw = ph = 1
+    }
     art.forEach((row, y) => [...row].forEach((ch, x) => {
       if (ch === '.' || ch === ' ') return
       if ((ch === 'r' && twinkle) || (ch === 'R' && !twinkle)) return
@@ -988,12 +1024,13 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   }
 
   // Terry on top
-  for (let y = 0; y < frame.length; y++) {
+  if (!opts.noDog) for (let y = 0; y < frame.length; y++) {
     for (let x = 0; x < SW; x++) {
       const c = frame[y][x]
       if (c) put(dogX + x, y - lift, c)
     }
   }
+  afterDog = true
   // the cape over his back, its upper edge lit
   for (const [x, top, bottom] of capeBack) for (let y = top; y <= bottom; y++) put(x, y, y === top ? [244, 92, 96] : [214, 38, 48])
   for (const [x, y, c] of capeTail) put(x, y, c)
@@ -1088,7 +1125,9 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
     if (phase >= 1) mark(markX - 2, 2, 'Z', 0x9aa4c8)
     if (phase >= 2) mark(markX - 1, 1, 'Z', 0xb8c0e0)
   }
-  return { canvas, columns, marks }
+  // where he is and which frame: the frame as drawn (eyes shut, breathing, turned round) and the set's own
+  const dog = { set: setName, index, x: dogX, y: -lift, flipped: fetchBack, drop: set.drop, frame, raw: set.frames[index] }
+  return { canvas, columns, marks, dog, over, moon }
 }
 
 export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high', date = null) {

@@ -147,6 +147,27 @@ test('a very narrow window still shows the request numbers, one per line', async
   await ui.unmount()
 })
 
+test('/runner puts the backpacked runner on the card, climbing while Claude works, /monk the skeleton monk, and /terry brings Terry back', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  const res = (await $.command.run({ command: 'runner', args: '' } as never)) as { text: string }
+  expect(res.text).toMatch(/런너/)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Raster', key: 'terry' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^서서 기다리는 중$/ })).toBeDefined()
+  await $.command.run({ command: 'runner', args: 'run' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /사다리 오르는 중 · 미리보기/ })).toBeDefined()
+  await $.command.run({ command: 'monk', args: 'bark' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /^덜그럭 덜그럭!/ })).toBeDefined()
+  await $.command.run({ command: 'terry', args: 'stop' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /^앉아서 기다리는 중$/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a /model or /effort change shows on the card without waiting for a request', async ($, on) => {
   const clock = engine(on)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })

@@ -5,6 +5,7 @@
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
 import { BAND_GAP, BAND_NAMES, RUN_STYLES, runStyle, holidayOf, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
+import { lodeCells } from './lode.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 30 // 달리기 한 장(60ms)이 딱 두 번 그려지게 (40ms면 2번·1번 번갈아 그려져 박자가 고르지 않다. 45ms 땐 장이 빠져 몸 흔들림 박자가 튀었다)
@@ -40,11 +41,13 @@ let stepChunks = 0
 let countedChunks = 0
 let effortFrom = '없음' // 추론 강도를 어디서 읽었는지 (/terry debug)
 let effort = null // 추론 강도: 요청마다 turn.step 에서 읽는다. 첫 요청 전이거나 강도가 없는 모델이면 null
-let style = 'flame1' // 'flame1' (불꽃 밴드) | 'terry' (강아지)
+let style = 'flame1' // 'flame1' (불꽃 밴드) | 'terry' (강아지 카드)
+let character = 'terry' // 카드의 주인공: 'terry' (강아지, /terry) | 'runner' (가방 멘 런너, /runner) | 'monk' (해골 수도승, /monk)
 let look = 'classic' // 테리 그림체: 'classic' (기본) | 'real' (참고 그림에서 따온 자세, 보류 중: /terry real 로만 켜짐)
 let mode = null // 고른 그림 방식: 'quad' (사분블록) | 'fine' (사분블록 + ▂▄▆, 가로 경계가 4단계로 매끈) | 'braille' (점자)
 // 안 골랐으면 테리는 점자(점 하나하나 점자에 맞춰 그림), 불꽃 밴드는 사분블록
-const drawMode = () => mode ?? (style === 'terry' ? 'braille' : 'quad')
+// 고른 방식이 없으면: 테리는 점자(점 하나하나 다듬은 그림), 런너·해골 수도승은 블록(옷·벽돌이 옛 게임처럼 또렷)
+const drawMode = () => mode ?? (style === 'terry' && character === 'terry' ? 'braille' : 'quad')
 
 // 임계치 알림: 같은 단계는 한 번만
 const lastTier = new Map()
@@ -168,11 +171,31 @@ const EFFORT_ALIASES = {
 const runEffort = () => (previewing() && previewEffort ? previewEffort : effort)
 const HOLIDAY_TEXT = { seollal: ['설날 · 새해 복 많이 받으세요', '새해 복!'], chuseok: ['추석 · 보름달이 떴어요', '추석!'] }
 const moodLabel = (m, short) =>
-  m === 'sit' && today().anniversary ? (short ? '1주년!' : '테리와 만난 지 ' + (new Date().getFullYear() - Number(installedOn.slice(0, 4))) + '년!')
+  character !== 'terry' && m === 'run' ? LODE_RUN[runEffort()] ?? LODE_RUN.high
+  : character !== 'terry' && m === 'sad' && !short ? (sadReason === 'aborted' ? '멈췄어요, 구멍에 빠짐' : LODE_TEXT.sad)
+  : character !== 'terry' && lodeSays(m, short) ? lodeSays(m, short)
+  : m === 'sit' && today().anniversary ? (short ? '1주년!' : '테리와 만난 지 ' + (new Date().getFullYear() - Number(installedOn.slice(0, 4))) + '년!')
   : m === 'sit' && today().holiday ? HOLIDAY_TEXT[today().holiday][short ? 1 : 0]
   : m === 'run' ? RUN_TEXT[runEffort()] ?? RUN_TEXT.high
   : m === 'sad' && !short ? (sadReason === 'aborted' ? '멈췄어요, 시무룩' : '앗, 실패했어요')
   : short ? MOOD_SHORT[m] : MOOD_TEXT[m]
+// 카드 그림: 테리 또는 해골 수도승 (카드·사용량 표·반응은 같다)
+const heroCells = (m, ms, drawWith, hour, cols, eff, date) =>
+  character === 'terry' ? terryCells(m, ms, drawWith, hour, cols, eff, date) : lodeCells(character, m, ms, drawWith, cols, eff)
+// 사다리 카드(런너·해골 수도승)의 말: 강아지에게만 맞는 말(멍멍, 꼬리, 킁킁, 원반, 밥)만 바꾼다
+const LODE_SHORT = { wag: '보고 있어요', bark: '알림!', sniff: '살피는 중', fetch: '가져오는 중', catch: '금괴 찾았다!', droop: '구멍에 빠짐', sad: '구멍에 빠짐', stretch: '몸 푸는 중', eat: '쉬는 중', door: '문 앞 대기', run: '달리는 중' }
+const LODE_TEXT = {
+  sit: '서서 기다리는 중', wag: '입력하는 걸 보고 있어요', bark: '알림이 왔어요!', sniff: '파일을 살피는 중', fetch: '웹에서 가져오는 중',
+  sad: '앗, 구멍에 빠졌어요', catch: '테스트 통과! 금괴 찾았다', droop: '테스트 실패… 구멍에 빠졌어요', stretch: '몸 푸는 중',
+  eat: '잠깐 쉬는 중', pet: '쓰다듬어 줘서 좋아요!',
+}
+const MONK_SAYS = { short: { bark: '덜그럭!' }, long: { bark: '덜그럭 덜그럭!' } }
+const RUNNER_SAYS = { short: { dig: '레이저 발사' }, long: { dig: '레이저로 파는 중', sniff: '레이저로 살피는 중' } }
+const LODE_RUN = { low: '걷는 중', medium: '빨리 걷는 중', high: '사다리 오르는 중', xhigh: '전력 질주 중', max: '쏜살같이 오르는 중!' }
+const lodeSays = (m, short) => {
+  const own = (character === 'monk' ? MONK_SAYS : RUNNER_SAYS)[short ? 'short' : 'long'][m]
+  return own ?? (short ? LODE_SHORT : LODE_TEXT)[m]
+}
 const MOOD_TEXT = {
   sit: '앉아서 기다리는 중', wag: '입력하는 걸 보고 있어요', bark: '멍! 멍!', run: '달리는 중', happy: '다 했어요!', sleep: '졸고 있어요 zZ',
   sniff: '파일을 킁킁 살피는 중', dig: '열심히 파는 중', fetch: '웹에서 물어 오는 중', ask: '허락을 기다려요!', sad: '앗, 실패했어요',
@@ -291,7 +314,7 @@ async function statsText($) {
 // 사용법 안내 (/terry help, /flame1 help). 명령 하나당 한 줄. 알림창은 줄바꿈을 못 그려서 여기에 쓰지 않는다.
 const guide = () =>
   [
-    'usage-meter 사용법 (지금: ' + (style === 'terry' ? '강아지' : '불꽃 밴드') + ', ' + drawMode() + ')',
+    'usage-meter 사용법 (지금: ' + (style !== 'terry' ? '불꽃 밴드' : character === 'monk' ? '해골 수도승' : character === 'runner' ? '런너' : '강아지') + ', ' + drawMode() + ')',
     '/flame1 quad    : 파란 불꽃 밴드, 꽉 찬 블록으로 그림',
     '/flame1 braille : 파란 불꽃 밴드, 점자로 그림 (더 곱지만 알알이 보일 수 있음)',
     '/terry braille  : 달리는 강아지, 점자로 그림 (기본, 점 하나하나 다듬은 그림)',
@@ -307,6 +330,8 @@ const guide = () =>
     '/terry mem      : 메모리 자세히 (전체 · 남은 양 · Claude 가 쓰는 양 · 많이 쓰는 프로그램 · 더 차면 생기는 일). 15% 아래로 남으면 카드에도 한 줄 (8% 아래면 빨강)',
     '/terry mem clean: 꺼도 되는 것 목록 (쉬는 Claude 세션 · 남은 도우미, 추천 표시). /terry mem clean 1 3 으로 여러 개, 추천 으로 추천만 끄기',
     '/terry compact  : 카드의 [압축] 과 같음 (마우스가 안 될 때, auto-model 과 같이 쓸 때)',
+    '/runner         : 테리 대신 가방 멘 런너 (오른쪽으로 걷다 사다리를 오르고 줄을 건넘, 해골 몽크가 뒤쫓아 옴, 레이저로 바닥을 팜). /runner run max 처럼 /terry 명령을 그대로 씀, /terry 로 돌아오기',
+    '/monk           : 테리 대신 해골 수도승이 사다리를 오름',
   ].join('\n')
 
 const LABELS = { five_hour: '5시간', seven_day: '주간', spend_limit: '지출' }
@@ -1015,7 +1040,11 @@ export function register(on) {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'flame1', description: '사용량을 파란 불꽃 밴드로 보여요 (뒤에 quad 또는 braille 을 붙이면 그림 방식 변경)' })
     await $.command.register({ name: 'terry', description: '사용량을 베들링턴 테리어가 달리는 화면으로 보여요 (뒤에 quad 또는 braille 을 붙이면 그림 방식 변경)' })
+    await $.command.register({ name: 'runner', description: '테리 대신 가방 멘 런너가 사다리를 오르는 화면 (로드런너 레전드 리턴즈처럼, 해골 몽크가 뒤쫓아 옴. /terry 의 명령을 그대로 씀)' })
+    await $.command.register({ name: 'monk', description: '테리 대신 해골 수도승이 사다리를 오르는 화면 (로드런너의 매드 몽크처럼, /terry 의 명령을 그대로 씀)' })
     style = (await $.store.get('style')) === 'terry' ? 'terry' : 'flame1'
+    const savedHero = await $.store.get('character')
+    character = savedHero === 'monk' || savedHero === 'runner' ? savedHero : 'terry'
     const savedMode = await $.store.get('mode')
     mode = savedMode === 'braille' || savedMode === 'fine' || savedMode === 'quad' ? savedMode : null
     look = (await $.store.get('look')) === 'real' ? 'real' : 'classic'
@@ -1195,9 +1224,16 @@ export function register(on) {
   })
 
   // /flame1 과 /terry: 그 화면으로 바꾼다. 뒤에 quad / braille 이 있으면 그림 방식도 바꾼다.
-  for (const name of ['flame1', 'terry']) {
+  for (const name of ['flame1', 'terry', 'runner', 'monk']) {
     on('command.run', { command: name }, async ($, e) => {
       const arg = e.args.trim().toLowerCase()
+      const card = name !== 'flame1' // /terry · /runner · /monk 는 같은 카드 (주인공만 다름)
+      const pick = async () => {
+        if (!card || character === name) return
+        character = name
+        await $.store.set('character', character)
+        stopAnim()
+      }
       if (arg === 'help' || arg === '?') return { text: guide() }
       if (arg === 'compact' || arg === '압축') {
         // 카드의 [압축] 과 같은 길 (마우스가 안 될 때). 압축은 명령 중엔 시작할 수 없어서 명령이 끝난 뒤 시작한다
@@ -1206,18 +1242,20 @@ export function register(on) {
         pressCompact($, hint && hint.kind === 'warm' ? 'warm' : 'cold') // 명령이 끝난 뒤 1초 안에 시작
         return { text: '압축을 시작해요 (카드의 [압축] 과 같아요: 쉬고 온 뒤면 Sonnet 이 요약)' }
       }
-      if (name === 'terry' && (arg === 'stats' || arg === '기록' || arg === '오늘')) return { text: await statsText($) }
+      if (card && (arg === 'stats' || arg === '기록' || arg === '오늘')) return { text: await statsText($) }
       const [first, second, ...rest] = arg.split(/\s+/)
-      if (name === 'terry' && ['mem', 'memory', '메모리', '램'].includes(first)) {
+      if (card && ['mem', 'memory', '메모리', '램'].includes(first)) {
         if (second === 'clean' || second === '정리') return { text: await memClean($, rest.join(' ')) }
         return { text: await memDetail($) }
       }
-      if (name === 'terry' && (arg === 'pane' || arg === '창' || arg === 'window')) {
+      if (card && (arg === 'pane' || arg === '창' || arg === 'window')) {
+        await pick()
         const opened = await openPane($)
         return { text: opened.isPlaced ? '테리를 옆 창에 띄웠어요 (창 위 ✕ 나 Esc 로 닫기)' : '테리 창을 열었는데 화면이 좁아 아직 못 그렸어요: 터미널을 넓히면 나타나요' }
       }
-      if (name === 'terry' && (arg === 'pet' || arg === '쓰다듬기' || arg === '쓰담')) {
+      if (card && (arg === 'pet' || arg === '쓰다듬기' || arg === '쓰담')) {
         style = 'terry'
+        await pick()
         await addPet($, 8000)
         return { text: '테리가 좋아해요! 🐾' }
       }
@@ -1244,11 +1282,12 @@ export function register(on) {
         }
       }
       const [word, level] = arg.split(/\s+/)
-      if (name === 'terry' && (word in PREVIEW_ARGS || word === 'stop')) {
+      if (card && (word in PREVIEW_ARGS || word === 'stop')) {
         previewMood = word === 'stop' ? null : PREVIEW_ARGS[word]
         previewEffort = EFFORT_ALIASES[level] ?? null
         previewUntil = arg === 'stop' ? 0 : Date.now() + PREVIEW_MS
         style = 'terry'
+        await pick()
         await $.store.set('style', style)
         stopAnim()
         $.ui.invalidate('ui.render')
@@ -1262,13 +1301,15 @@ export function register(on) {
         look = arg
         await $.store.set('look', look)
       }
-      style = name
+      style = card ? 'terry' : 'flame1'
+      await pick()
       await $.store.set('style', style)
       stopAnim()
       $.ui.invalidate('ui.render')
       const way = drawMode() === 'quad' ? '사분블록(quad)' : drawMode() === 'fine' ? '촘촘한 블록(fine)' : '점자(braille)'
-      const lookText = style === 'terry' ? ' · 그림체: ' + (look === 'classic' ? '예전(classic)' : '새(real)') : ''
-      return { text: (style === 'terry' ? '강아지(terry)' : '불꽃 밴드(flame1)') + ' 화면으로 바꿨어요 · 그림 방식: ' + way + lookText }
+      const lookText = name === 'terry' ? ' · 그림체: ' + (look === 'classic' ? '예전(classic)' : '새(real)') : ''
+      const who = { monk: '해골 수도승(monk)', runner: '가방 멘 런너(runner)', terry: '강아지(terry)', flame1: '불꽃 밴드(flame1)' }[name]
+      return { text: who + ' 화면으로 바꿨어요 · 그림 방식: ' + way + lookText }
     })
   }
 
@@ -1286,7 +1327,7 @@ export function register(on) {
     const Raster = 'Raster' in elements ? elements.Raster : null
     if (!Raster || e.surface !== 'terminal') return Text({ key: 'pane-none', dimColor: true, children: ['테리는 터미널 화면에서만 보여요'] })
     const cols = Math.max(TERRY_MIN_COLS, Math.min(TERRY_COLS, (e.props.bodyColumns || TERRY_COLS) - 1))
-    const scene = () => terryCells(mood(), nowMs(), drawMode(), localHour(), cols, runEffort(), today())
+    const scene = () => heroCells(mood(), nowMs(), drawMode(), localHour(), cols, runEffort(), today())
     runAnim($, e.requestId, 'pane-terry', cols, TERRY_ROWS, scene)
     const m = mood()
     const vals = values()
@@ -1353,7 +1394,7 @@ export function register(on) {
       const tight = sideW < 33
       const mini = beside && sideW < 22
       const nano = beside && sideW < 15
-      runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => terryCells(mood(), nowMs(), drawMode(), localHour(), terryCols, runEffort(), today()))
+      runAnim($, e.requestId, 'terry', terryCols, TERRY_ROWS, () => heroCells(mood(), nowMs(), drawMode(), localHour(), terryCols, runEffort(), today()))
       const rt = await autoRoute($)
       const routed = rt && rt.model && familyName(rt.model) !== familyName(rt.base)
       // 자동으로 바꿔 쓰는 중이면 실제로 쓰는 모델을 보여 준다
@@ -1423,7 +1464,7 @@ export function register(on) {
           })
         }),
       })
-      const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: terryCells(m, nowMs(), drawMode(), localHour(), terryCols, runEffort(), today()) })
+      const dog = Raster({ key: 'terry', columns: terryCols, rows: TERRY_ROWS, cells: heroCells(m, nowMs(), drawMode(), localHour(), terryCols, runEffort(), today()) })
       const hint = hintRow($, await autoHint($), Box, Text, Button, cols)
       const saving = savingRow(await autoSaving($), Text, cols)
       const extras = [hint, saving].filter(Boolean)

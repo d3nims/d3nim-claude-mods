@@ -284,6 +284,23 @@ claude plugin update usage-meter@d3nim-claude-mods
 - 1.2.19: quad · fine 도 점자와 같은 그림(위 'quad(블록)도 같은 그림'). 달리기를 PixelLab 으로 뽑은 질주(B)를 다듬은 E안으로 바꿈: 9장 · 60ms, 0번은 예전 key pose 4(쭉 뻗은 자세, max 비행이 잡는 장, 빌드가 `flyFrame` 0 을 씀). B 는 C안 6번을 첫 그림으로 준 PixelLab animate_image 결과를 Terry 격자·팔레트로 되돌린 것이고, 가슴 파임 2 · 배 파임 1 · 떨어진 점 · 코 색만 고침(검사기 0건). 사용자: "리얼하고 애기 강아지가 뛰는 거 같아서 귀엽다", Retro Diffusion 은 "토끼 같다". 비교 https://claude.ai/artifact/2UYkJL7yNfXcT5nwicWuaK. 타이머 FRAME_MS 40 → 30 (60ms 한 장이 딱 두 틱; 40 이면 2·1 틱 번갈아 박자가 고르지 않음). 걸음 연구 도구 `docs/preview/gait/`, 블록 비교 도구 `docs/preview/blocks/`. 편집기 db 의 run-0~11 은 아직 1.2.18 달리기라, db 에서 import 하면 달리기가 되돌아감(맞출지 사용자 확인 대기).
 - 1.2.20 (2026-10-19): 움직임 규칙 모음(`docs/preview/motion/`, README 에 규칙과 사용자 판정, 비교 페이지 https://claude.ai/artifact/15EwHdrvAfUo4vbQ2FQsdj). 쉬는 동안 몸통만 숨쉬기(앉은 자세는 그려 둔 등 숨, 엎드린·선 자세는 등 가운데 볼록, render.js `breathFrames`). 땅 파기는 머리가 코를 따라 숙임. 달리기 얼굴을 테리로(걷기 머리, 귀가 펄럭이며 분홍 속). 졸기 꾸벅꾸벅 4장. 모든 동작의 눈을 순하게(위 앞쪽 회색 점이 찌푸린 눈썹처럼 보였음). 귀가 머리보다 한 박자 늦게(짖기·원반·기지개). 밥 먹기에 고개 들어 코 핥기와 꼬리(13장). max 날기는 질주에서 네 발이 다 뜬 장(1번)을 한 장짜리 `fly` 세트로, 망토는 그 장의 어깨(`cape`)에서 아랫단 한 줄로. 좁은 카드(mini)도 입력/출력/캐시 세 줄. 채택한 안은 terry-edits.json 과 편집기 db 에 모두 넣어서 편집기 = 카드(140장); run-9~11 은 지움. 카드 그대로 보기 `docs/preview/motion/card-cells.mjs`.
 
+- 1.2.21 (2026-10-21): 점자 카드 다듬기. 짖기(1~3)·하품(기지개 5~7) 입을 실제 짖는 사진과 CC0 도트로 다시 그림(아래턱 1줄), 털의 외톨이 점 정리, 걷기 뒷다리 스윙(13~15번 발을 2점 들어 고르게 앞으로, 먼 뒷다리는 진하게; 참고 Muybridge plate 704), 원반 5번 다리 잘록함. terry-edits.json 과 편집기 db 둘 다(백업 `docs/preview/terry-edits.json.bak-20261021-*`, git 에는 안 올림). 달은 render.js `moonShape`(원 두 개로 깎은 초승달, 추석은 크레이터 보름달), 점자에서 점 하나 = 픽셀 하나; quad 는 옛 그림 그대로.
+
+### usage-meter 1.2.21 (2026-10-21): /runner · /monk 사다리 카드, 셀 글꼴 실험
+- 동료 건의("로드런너2 해골"): 실제로는 Lode Runner: The Legend Returns(1994)의 주인공과 Mad Monk. 상용 게임 그림은 안 씀(저장소 공개), 구조만 빌리고 그림은 새로 그림.
+- `/runner`: 가방 멘 런너가 오른쪽으로 걷다 사다리를 오르고 줄을 건넘, 빨간 해골 수도승이 1.4초 뒤에 같은 길로 쫓아옴, dig 기분엔 레이저로 앞 바닥을 팜. `/monk`: 수도승이 주인공. `/terry` 로 돌아옴. register.js `character`(store 키 `character`), `heroCells`, 말은 `LODE_TEXT`·`LODE_SHORT`·`LODE_RUN`(강아지에게만 맞는 말만 바꿈). 기본 그림 방식은 quad.
+- 그림: `docs/preview/lode/rig.py`(관절 rig, 24x32: 걷기 8·오르기 4·매달리기 4) → `build-lode.py` → `hooks/lode-data.js`, 장면 `hooks/lode.js`(라임 잔디, 흰 사다리·줄, 금 해골 보물, 카메라가 따라감). 미리보기 `docs/preview/lode/preview.py` + `cells.mjs`.
+- **셀 글꼴(아직 플러그인에 연결 안 함, 이번 배포에서 카드에 안 보임):** 터미널 칸 하나 = 8x16 글리프로 그림을 잘라 글꼴로 만들면 터미널이 화면 픽셀 해상도로 그려 줌. 사이드 창이나 다른 터미널 없이 도트가 또렷함.
+  - 글리프는 Supplementary PUA-B (사다리 U+100000~, 테리 U+10A000~; WaveTerm 의 Hack Nerd Font 가 BMP PUA 와 U+F0001~ 를 먼저 씀). 글자 크기 14, WaveTerm 기본 Hack 기준(adv 1233, asc 1901, desc 483 /2048).
+  - 칸당 3색: 글리프를 16px 폭으로 만들어 오른쪽 칸 위에 넘쳐 그림 → 자기 바탕 + 자기 글자색 + 왼쪽 칸 글자색. `hooks/lode-fine.js` `cellsOf` 가 줄마다 DP 로 색을 고름.
+  - DirectWrite 가 글리프 가장자리를 ±0.5px 번지게 해 칸 경계에 고정된 줄이 생김 → `cellfont.py` BLEED(가로만). 10/20 런너 장면 측정은 .25, 10/21 테리 장면 측정은 .5 가 가장 고르고 흰색보다 밝은 픽셀 0 → 지금 .5. 사다리 카드에 줄이 다시 보이면 그 장면에서 다시 잴 것.
+  - 흐름: 장면(`lode-fine.js` / `terry-fine.js`: 점자 테리 → Scale2x 한 번, 달은 반 점 픽셀로 다시) → `harvest.mjs` · `harvest-terry.mjs` 가 나오는 모든 칸을 모아 `hooks/lode-glyphs.js` · `terry-glyphs.js` (+ json) → `python cellfont.py --glyphs glyphs.json <out.ttf> 7.0 --more terry-glyphs.json 10a000` (fontTools 필요). 없는 칸은 가장 가까운 글리프. 지금 39,168조각(글꼴 하나 최대 65,535).
+  - 설치(Windows 사용자 글꼴): `%LOCALAPPDATA%\Microsoft\Windows\Fonts\LodeCells7.ttf` + HKCU Fonts 'Lode Cells (TrueType)'. WaveTerm `term:fontfamily` 를 `"Hack, Lode Cells"` 로. 새 글꼴 파일은 WaveTerm 을 다시 켜야 보임(쓰던 옛 파일은 그때까지 잠김).
+  - 보기: `node docs/preview/lode/play.mjs [runner|monk|terry] [mood] [effort]` (WaveTerm 안에서).
+  - 시험 장치: xterm.js 6.0.0 + addon-webgl 0.19.0 을 Windows Chrome headless 로 띄워 WaveTerm 과 같은 화면을 찍음(term.open 전에 'W' 글꼴을 먼저 불러야 칸이 8px).
+  - 2배 도트 편집기 https://claude.ai/artifact/YRPp1sdui1VZEivLnyrDeZ (`docs/preview/terry2x-editor-template.html` + `terry2x-editor-data.json`), `docs/preview/lode/terry2x.mjs import <폴더>` → `hooks/terry-2x-data.js` (손본 장만 Scale2x 대신).
+  - 다음: 플러그인 그림 방식 `font`(글꼴이 없으면 점자로), 동료용 글꼴 설치 스크립트.
+
 ### auto-model 0.5.10 (2026-10-17): 1주 로그 검토 뒤 고침, 최신 모델, 단어 후보
 - 1주 검토(10/12~17, 324턴): 전환 0번(잘못 바꾼 것 없음). 쉬고 와서 압축 9번 Sonnet 약 $2.5 vs Opus 약 $8. 기억 질문 shadow 23번, 켰다면 +$2.3(1.3%)뿐이고 작은 모델이 '고장'·'국장 확인' 을 가볍다고 봄 → light 는 계속 꺼 둠. 일꾼 켜짐이지만 0번, 놓친 후보 0번.
 - 놓친 일꾼 판정: 읽기만 하는 셸 명령(cat·grep·ls·sed -n·git status/log/diff…, 쓰기 >·sed -i·find -delete 없음)도 '찾기'로 침(`isReadOnlyCommand`). 전엔 Bash 가 끼면 무조건 원래 모델이 맞다고 봐서 늘 0.

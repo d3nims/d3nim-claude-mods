@@ -250,6 +250,10 @@ function paintCells(cv, cells, cols, rows, mode) {
     if (mode !== 'braille' && colOf(bg)) { g.fillStyle = colOf(bg); g.fillRect(x0, y0, CW, CH); }
     const fc = colOf(fg); if (!fc) return;
     g.fillStyle = fc;
+    if (cp !== 0x20 && (mode === 'braille' ? cp < 0x2800 || cp > 0x28ff : !MASK_OF.has(cp))) {   // a letter the card writes over the picture (z, ?, !)
+      g.font = `bold ${CH * 0.8}px ui-monospace, monospace`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(String.fromCodePoint(cp), x0 + CW / 2, y0 + CH / 2); return;
+    }
     const m = mode === 'braille' ? cp - 0x2800 : MASK_OF.get(cp) ?? 0;
     for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) {
       const sx = x0 + dx * CW / 2, sy = y0 + dy * CH / 4;
