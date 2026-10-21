@@ -536,6 +536,12 @@ const SKY_COLS = 12 // room to the right of Terry for the sun, the moon and the 
 const TRAIL_COLS = 5 // room to the left of Terry for speed lines and dust while he runs
 const SOIL_ROWS = 3 // sub-pixel rows of earth under the grass
 export const TERRY_COLS = DOG_COLS + SKY_COLS + TRAIL_COLS
+// The ground repeats every this many sub-pixels (the widest card, so no repeat shows at once). Endless ground made a new
+// pattern under every cell as he ran, and the Lode Cells card (terry-fine.js) a new glyph and colour pair each time:
+// tens of thousands an hour, which overflows the terminal's glyph cache (xterm.js WebGL on a laptop GPU with 16
+// texture units garbles all text once its pages merge, fixed upstream after addon-webgl 0.19). Repeating, the
+// ground's glyphs stop at a few hundred. A multiple of 4: the pebbles and soil step every 4 and 2.
+const GROUND_PERIOD = 84
 export const TERRY_ROWS = Math.ceil((ground + 1 + SOIL_ROWS) / 4)
 export const TERRY_MIN_COLS = DOG_COLS + 3 // a narrow window gives up the sky first, then most of the room behind him
 
@@ -885,7 +891,7 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   // the ground: a grassy edge on earth with a few pebbles; it slides past while he runs
   const off = running ? Math.floor(t * style.ground) : mood === 'sniff' ? Math.floor(t * 6) : 0 // the ground slides by as fast as he goes
   for (let x = 0; x < TW; x++) {
-    const wx = x + off
+    const wx = (x + off) % GROUND_PERIOD
     for (let k = 1; k <= SOIL_ROWS; k++) {
       const y = ground + k
       put(x, y, hash(wx >> 2, y + 41) < 0.06 ? PEBBLE : k === 1 ? SOIL[2] : SOIL[hash(wx >> 1, y) < 0.3 ? 1 : 0])
@@ -897,10 +903,10 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
   if (date && mode === 'braille') {
     const slide = running ? Math.floor(t * style.ground) : 0
     const { month } = date
-    if (month === 12 || month <= 2) for (let x = 0; x < TW; x++) { if (hash(x + slide, 871) < 0.4) put(x, ground - 1, [226, 230, 240]) }
+    if (month === 12 || month <= 2) for (let x = 0; x < TW; x++) { if (hash((x + slide) % GROUND_PERIOD, 871) < 0.4) put(x, ground - 1, [226, 230, 240]) }
     else if (month >= 9 && month <= 11) {
       const FALLEN = [[214, 120, 40], [196, 70, 38], [232, 182, 62], [168, 96, 44]]
-      for (let x = 0; x < TW; x++) if (hash(x + slide, 881) < 0.08) put(x, ground - 1, FALLEN[(x + slide) % 4])
+      for (let x = 0; x < TW; x++) { const wx = (x + slide) % GROUND_PERIOD; if (hash(wx, 881) < 0.08) put(x, ground - 1, FALLEN[wx % 4]) }
     }
   }
 
