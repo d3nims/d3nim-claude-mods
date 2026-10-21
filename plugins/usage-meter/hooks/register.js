@@ -1327,7 +1327,9 @@ export function register(on) {
       const way = drawMode() === 'quad' ? '사분블록(quad)' : drawMode() === 'fine' ? '촘촘한 블록(fine)' : drawMode() === 'font' ? '글꼴(font)' : '점자(braille)'
       const lookText = name === 'terry' ? ' · 그림체: ' + (look === 'classic' ? '예전(classic)' : '새(real)') : ''
       const who = { monk: '해골 수도승(monk)', runner: '가방 멘 런너(runner)', terry: '강아지(terry)', flame1: '불꽃 밴드(flame1)' }[name]
-      const fontNote = drawMode() === 'font' ? ' · Lode Cells 글꼴이 있어야 보여요 (네모나 물음표가 보이면 /' + name + ' braille)' : ''
+      // 시험 글자(글꼴의 첫 글리프, 가로 막대): 이 화면을 그리는 터미널에 글꼴이 있는지는 플러그인이 알 수 없어서(tmux·원격 접속
+      // 너머) 보는 사람이 바로 가리게 한다
+      const fontNote = drawMode() === 'font' ? ' · 시험 글자 [' + String.fromCodePoint(0x100000) + '] 가 흰 가로 막대면 OK, 빈 네모면 Lode Cells 글꼴이 안 잡힌 거예요 (/' + name + ' braille 로 돌아가기, 글꼴을 깐 뒤엔 터미널을 완전히 껐다 켜기)' : ''
       return { text: who + ' 화면으로 바꿨어요 · 그림 방식: ' + way + lookText + fontNote }
     })
   }

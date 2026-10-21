@@ -41,6 +41,17 @@ else {
   Say "registered: $Name"
 }
 
+# 2b. told to Windows the way its own installer does, so programs started from now on (and ones listening) see it
+if (-not $DryRun) {
+  Add-Type -Namespace LodeCells -Name Win -MemberDefinition @'
+[DllImport("gdi32.dll", CharSet = CharSet.Unicode)] public static extern int AddFontResourceW(string file);
+[DllImport("user32.dll")] public static extern IntPtr SendMessageTimeoutW(IntPtr hWnd, uint msg, IntPtr w, IntPtr l, uint flags, uint ms, out IntPtr result);
+'@
+  [void][LodeCells.Win]::AddFontResourceW($Dest)
+  $r = [IntPtr]::Zero
+  [void][LodeCells.Win]::SendMessageTimeoutW([IntPtr]0xffff, 0x1D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]$r) # WM_FONTCHANGE to all
+}
+
 # 3. older versions removed (one a running terminal still holds stays until it closes; run this again then)
 foreach ($old in Get-ChildItem -Path $Dir -Filter 'LodeCells*.ttf' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $Dest }) {
   if ($DryRun) { Say "would remove old $($old.Name)" }
@@ -69,10 +80,19 @@ if (Test-Path $settings) {
   $size = $json.'term:fontsize'
   if ($size -and $size -ne 14) { Say "note: WaveTerm term:fontsize is $size; the picture is drawn for 14" }
   if ($family -and $family -notmatch '^\s*Hack') { Say "note: the picture is drawn for Hack (WaveTerm's own font); with $family it may show gaps" }
+} elseif (Test-Path (Split-Path $settings)) {
+  if ($DryRun) { Say "would create WaveTerm settings with term:fontfamily: Hack, Lode Cells" }
+  else {
+    [IO.File]::WriteAllText($settings, "{`n  `"term:fontfamily`": `"Hack, Lode Cells`"`n}`n", (New-Object Text.UTF8Encoding $false))
+    Say 'WaveTerm term:fontfamily: Hack, Lode Cells (new settings.json)'
+  }
 } else {
   Say "WaveTerm settings not found ($settings): add 'Lode Cells' after your terminal's font yourself"
 }
 
+# 5. a running WaveTerm read its fonts when it started: it has to be quit (every window) and started again
+$running = Get-Process -Name 'Wave' -ErrorAction SilentlyContinue
 Write-Host ''
+if ($running) { Write-Host 'WaveTerm is running: quit it completely (every window; no Wave left in Task Manager) and start it again.' }
 Write-Host 'Done. Restart WaveTerm (its open terminals close), then type /terry font in Claude Code.'
 Write-Host 'Boxes or question marks instead of Terry: the font is not picked up; /terry braille goes back.'

@@ -92,8 +92,10 @@ claude plugin install usage-meter@d3nim-claude-mods
    ```powershell
    irm https://raw.githubusercontent.com/d3nims/d3nim-claude-mods/main/plugins/usage-meter/fonts/install-font.ps1 | iex
    ```
-2. WaveTerm 을 다시 켜요 (열린 터미널은 같이 닫혀요).
-3. Claude Code 에서 `/terry font` (`/runner font` · `/monk font` 도 돼요). 네모나 물음표가 보이면 글꼴이 안 잡힌 거라 `/terry braille` 로 돌아가요.
+2. WaveTerm 을 **완전히** 껐다 켜요: 창을 모두 닫고 작업 관리자에 Wave 가 안 남았는지 확인 (열린 터미널은 같이 닫혀요). 켜 둔 채로는 새 글꼴을 못 봐요.
+3. Claude Code 에서 `/terry font` (`/runner font` · `/monk font` 도 돼요). 답에 나오는 시험 글자가 흰 가로 막대면 OK, 빈 네모면 글꼴이 안 잡힌 거라 `/terry braille` 로 돌아가요.
+
+글꼴은 **화면을 보여 주는 PC** 에 깔아야 해요. 다른 PC 에서 SSH·tmux 로 붙어 보면, 그 PC 에 깔아야 해요.
 
 그림은 WaveTerm 기본 글꼴(Hack) 14 크기, 화면 배율 100% 에 맞춰 잘랐어요. 다른 글꼴·크기에선 틈이 보일 수 있어요. 점자보다 CPU 를 조금 더 써요.
 

@@ -19,7 +19,7 @@ sys.path.insert(0, str(HERE))
 from breath import breath_pair  # noqa: E402
 import propose  # noqa: E402
 
-RELEASED = 'f62ff13'   # usage-meter 1.2.21
+RELEASED = '6127bc0'   # usage-meter 1.2.22
 
 ORDER = [
     ('walk', '걷기', '작업 중 (보통 노력)'), ('run', '달리기', '작업 중 (높은 노력) · 물어 오기'),
