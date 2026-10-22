@@ -539,3 +539,67 @@ test('/terry mem says what happens if it fills up; /terry mem clean lists other 
   expect(done).toMatch(/^껐어요\n {2}Claude 세션 'st' \(stock\) 0\.5GB\n {2}Claude 가 남긴 도우미 mcp-server-git 0\.1GB\n\n지금 남은/)
   expect(await run('mem clean 2')).toMatch(/먼저 \/terry mem clean/) // the list is used up once picked
 })
+
+test('with several Claude windows only the one typed in last moves its card; the others stand dimmed with a pause sign', async ($, on) => {
+  const clock = engine(on, 38, 71, { HOME: '/home/u' })
+  const LIVE = '/home/u/.claude/usage-meter-live.json'
+  let live = ''
+  on('fs.read', (_: unknown, e: any) => {
+    if (e.path !== LIVE || !live) throw new Error('no such file')
+    return { value: live }
+  })
+  on('fs.write', (_: unknown, e: any) => ((live = e.path === LIVE ? e.text : live), { value: undefined }))
+  on('fs.exists', () => ({ value: false }))
+  on('prompt.submit', (_: unknown, e: any) => ({ text: e.text }))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  await clock.advance(1000)
+  const me = JSON.parse(live).owner
+  expect(me).toBeTruthy() // a new window takes the card
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  expect(await ui.find({ type: 'Text', text: /^\|\| / })).toBeUndefined()
+  live = JSON.stringify({ owner: 'another-window', at: Date.now() }) // typed in another window
+  await clock.advance(1000)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /^\|\| 앉아서 기다리는 중$/ })).toBeDefined() // still says how it is, paused
+  await $.prompt.submit({ text: 'hello', asUser: true })
+  await ui.redraw()
+  expect(JSON.parse(live).owner).toBe(me) // typing here takes it back
+  expect(await ui.find({ type: 'Text', text: /^\|\| / })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('in tmux a click on another window (its focus report) pauses this card, and a click back brings it back', async ($, on) => {
+  const clock = engine(on, 38, 71, { HOME: '/home/u', TMUX: '/tmp/tmux-1000/default,1,0' })
+  const LIVE = '/home/u/.claude/usage-meter-live.json'
+  let live = ''
+  let clients = '/dev/pts/1\tattached,focused,UTF-8\t/work/mine\n/dev/pts/2\tattached,focused,UTF-8\t/work/other\n' // before any report: all 'focused'
+  on('fs.read', (_: unknown, e: any) => {
+    if (e.path !== LIVE || !live) throw new Error('no such file')
+    return { value: live }
+  })
+  on('fs.write', (_: unknown, e: any) => ((live = e.path === LIVE ? e.text : live), { value: undefined }))
+  on('fs.exists', () => ({ value: false }))
+  on('process.run', (_: unknown, e: any) => ({ value: { exitCode: 0, stdout: e.argv[0] === 'tmux' ? clients : '', stderr: '' } }))
+  on('session.root', () => ({ value: '/work/mine' }))
+  await $.session.start({ cwd: '/work/mine', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'terry', args: '' } as never)
+  const ui = await $.ui.mount({ plugin: 'usage-meter', surface: 'terminal', component: 'AbovePrompt', props: WIDE })
+  await clock.advance(1000)
+  clients = '/dev/pts/1\tattached,UTF-8\t/work/mine\n/dev/pts/2\tattached,UTF-8\t/work/other\n' // reports start: nothing focused
+  await clock.advance(1000)
+  clients = '/dev/pts/1\tattached,UTF-8\t/work/mine\n/dev/pts/2\tattached,focused,UTF-8\t/work/other\n' // the other window clicked
+  await clock.advance(1000)
+  await ui.redraw()
+  expect(JSON.parse(live).focus.path).toBe('/work/other')
+  expect(await ui.find({ type: 'Text', text: /^\|\| / })).toBeDefined()
+  clients = '/dev/pts/1\tattached,UTF-8\t/work/mine\n/dev/pts/2\tattached,UTF-8\t/work/other\n' // off to another program: the last click stands
+  await clock.advance(1000)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /^\|\| / })).toBeDefined()
+  clients = '/dev/pts/1\tattached,focused,UTF-8\t/work/mine\n/dev/pts/2\tattached,UTF-8\t/work/other\n' // clicked back here
+  await clock.advance(1000)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /^\|\| / })).toBeUndefined()
+  await ui.unmount()
+})

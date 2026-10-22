@@ -4,8 +4,9 @@
 // 뒤에 quad 또는 braille 을 붙이면 그림 방식을 바꿉니다 (예: /terry braille)
 //
 // 그림 그리는 계산은 render.js, 스프라이트 데이터는 terrier-data.js 에 있습니다.
-import { BAND_GAP, BAND_NAMES, RUN_STYLES, runStyle, holidayOf, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells } from './render.js'
-import { lodeCells } from './lode.js'
+import { BAND_GAP, BAND_NAMES, RUN_STYLES, runStyle, holidayOf, TERRY_COLS, TERRY_MIN_COLS, TERRY_ROWS, makeBand, stateColor, terryCells, terryCellList, packCells } from './render.js'
+import { lodeCells, lodeCellList } from './lode.js'
+import { pausedCells, PAUSE_MS } from './pause.js'
 
 const FLAME_ROWS = 3 // 불꽃 줄 수 (게이지 줄과 이름 줄은 따로)
 const FRAME_MS = 30 // 달리기 한 장(60ms)이 딱 두 번 그려지게 (40ms면 2번·1번 번갈아 그려져 박자가 고르지 않다. 45ms 땐 장이 빠져 몸 흔들림 박자가 튀었다)
@@ -184,16 +185,116 @@ const moodLabel = (m, short) =>
 // 카드 그림: 테리 또는 해골 수도승 (카드·사용량 표·반응은 같다)
 const heroCells = (m, ms, drawWith, hour, cols, eff, date) =>
   character === 'terry' ? terryCells(m, ms, drawWith, hour, cols, eff, date) : lodeCells(character, m, ms, drawWith, cols, eff)
+// 여러 Claude 창: 카드는 지금 쓰는 창 하나만 움직이고, 나머지 창의 카드는 지금 기분의 한 장에서 멈춰 어두워진다
+// (pause.js). 지금 쓰는 창은 둘 중 더 최근 것: 마지막으로 입력한 창, 또는 마지막으로 클릭한 창(tmux 가 알려 줄 때:
+// focus-events 를 켠 tmux 는 터미널이 보내는 선택/해제 신호로 어느 창이 선택됐는지 안다. 윈도우 SSH 를 거쳐 보면 그 신호가
+// 오지 않아 입력만 남는다). 모든 창이 함께 읽는 파일 하나에 적는다: Windows 사용자 폴더의 .claude 안. WSL 의 Claude 도
+// Windows 의 Claude 도 한 WaveTerm 창에 같이 뜨고(글자 그림 저장소를 나눠 씀), 서로의 설정 폴더는 다르다.
+const LIVE_FILE = 'usage-meter-live.json'
+const liveKey = startedAt.toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36) // 이 창
+let livePath // 아직 안 찾음: undefined, 둘 곳이 없음: null
+let live = { owner: null, at: 0, focus: null } // 마지막으로 입력한 창(owner, at), 마지막으로 클릭한 창의 폴더(focus: { path, at })
+let lastClaim = 0
+let myPath = null // 이 창의 작업 폴더 (클릭한 창과 맞춰 볼 때: /mnt/c/... 소문자로)
+let tmuxSeen = null // tmux 가 선택됐다고 한 창들 (바뀐 것만 알린다)
+const samePath = p => String(p || '').replace(/^([a-zA-Z]):[\\/]/, (_, d) => '/mnt/' + d.toLowerCase() + '/').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+async function liveFile($) {
+  if (livePath !== undefined) return livePath
+  livePath = null
+  // ($.env.get 은 이름을 글자 그대로 써야 한다: 모듈이 읽는 변수를 엔진이 미리 셀 수 있게)
+  const wsl = await $.env.get('WSL_DISTRO_NAME').catch(() => '')
+  const win = await $.env.get('USERPROFILE').catch(() => '')
+  const home = await $.env.get('HOME').catch(() => '')
+  try {
+    if (wsl) {
+      // WSL: Windows 쪽 사용자 폴더 (C:\Users\이름 → /mnt/c/Users/이름)
+      const { stdout } = await $.process.run(['cmd.exe', '/c', 'echo %USERPROFILE%'], { timeoutMs: 5000 })
+      const m = stdout.trim().match(/^([A-Za-z]):\\(.+)$/)
+      const dir = m && '/mnt/' + m[1].toLowerCase() + '/' + m[2].replace(/\\/g, '/') + '/.claude'
+      if (dir && (await $.fs.exists(dir))) return (livePath = dir + '/' + LIVE_FILE)
+    }
+  } catch {}
+  if (win) return (livePath = win.replace(/[\\/]+$/, '') + '\\.claude\\' + LIVE_FILE)
+  if (home) livePath = home.replace(/\/+$/, '') + '/.claude/' + LIVE_FILE
+  return livePath
+}
+async function writeLive($) {
+  const f = await liveFile($)
+  if (f) await $.fs.write(f, JSON.stringify(live)).catch(() => {})
+}
+// 이 창이 움직인다고 적는다 (입력할 때. 같은 창이면 몇 초에 한 번만)
+async function claimLive($) {
+  const now = Date.now()
+  if (live.owner === liveKey && now - lastClaim < 5000) return
+  lastClaim = now
+  const was = paused()
+  live = { ...live, owner: liveKey, at: now }
+  if (was) $.ui.invalidate('ui.render')
+  await writeLive($)
+}
+async function readLive($) {
+  const f = await liveFile($)
+  if (!f) return
+  const was = paused()
+  try {
+    const v = JSON.parse(await $.fs.read(f))
+    live = { owner: v.owner ?? null, at: Number(v.at) || 0, focus: v.focus && v.focus.path ? { path: String(v.focus.path), at: Number(v.focus.at) || 0 } : null }
+  } catch {
+    return // 아직 없거나 쓰는 중: 그대로
+  }
+  if (paused() !== was) $.ui.invalidate('ui.render')
+}
+// tmux 안이면: 새로 선택된 창이 있는지 묻는다 (선택된 게 하나도 없으면, 곧 WaveTerm 밖을 보는 중이면, 마지막 것 그대로)
+async function watchTmux($) {
+  if (!(await $.env.get('TMUX').catch(() => ''))) return
+  let out
+  try {
+    out = (await $.process.run(['tmux', 'list-clients', '-F', '#{client_name}\t#{client_flags}\t#{pane_current_path}'], { timeoutMs: 3000 })).stdout
+  } catch {
+    return
+  }
+  const focused = new Map()
+  for (const line of out.split('\n')) {
+    const [name, flags, path] = line.split('\t')
+    if (name && /(^|,)focused(,|$)/.test(flags || '')) focused.set(name, path)
+  }
+  const before = tmuxSeen
+  tmuxSeen = focused
+  if (!before) return // 처음 본 것은 기준일 뿐 (신호를 안 받는 터미널은 늘 '선택됨'으로 남아 있다)
+  const fresh = [...focused].filter(([n]) => !before.has(n))
+  if (fresh.length !== 1) return
+  const path = samePath(fresh[0][1])
+  if (live.focus?.path === path && live.focus.at > live.at) return
+  const was = paused()
+  live = { ...live, focus: { path, at: Date.now() } }
+  if (paused() !== was) $.ui.invalidate('ui.render')
+  await writeLive($)
+}
+// 쉬는 창인가: 더 최근 것이 클릭이면 그 폴더의 창만, 입력이면 그 창만 움직인다 (아무 기록이 없으면 멈추지 않는다)
+const paused = () => {
+  if (style !== 'terry') return false
+  if (live.focus && live.focus.at > live.at) return myPath !== null && live.focus.path !== myPath
+  return live.owner !== null && live.owner !== liveKey
+}
+// 멈춘 카드 한 장 (블록·점자): 지금 기분의 첫 장을 어둡게
+const pausedPicture = (m, cols) => {
+  const cells = character === 'terry'
+    ? terryCellList(m, PAUSE_MS, drawMode() === 'font' ? 'braille' : drawMode(), localHour(), cols, runEffort(), today())
+    : lodeCellList(character, m, PAUSE_MS, drawMode() === 'font' ? 'braille' : drawMode(), cols, runEffort())
+  return packCells(pausedCells(cells, cols, TERRY_ROWS))
+}
 // 카드 그림 한 장: 글꼴 방식은 hero-font.js 가 Lode Cells 글리프로(Raster 가 못 받는 글자라 글 줄로, 자기 칸만 다시 그림),
 // 나머지는 Raster 로
 const heroPicture = (elements, key, m, cols) => {
+  if ((drawMode() !== 'font' || !elements.Client) && paused())
+    return elements.Raster({ key, columns: cols, rows: TERRY_ROWS, cells: pausedPicture(m, cols) })
   if (drawMode() !== 'font' || !elements.Client)
     return elements.Raster({ key, columns: cols, rows: TERRY_ROWS, cells: heroCells(m, nowMs(), drawMode() === 'font' ? 'braille' : drawMode(), localHour(), cols, runEffort(), today()) })
   const { moodMs, ...date } = today()
   return elements.Client({
     key,
     module: './hero-font.js',
-    props: { hero: character, mood: m, effort: runEffort(), hour: localHour(), cols, startedAt, date: { ...date, moodSince: Date.now() - moodMs } },
+    props: { hero: character, mood: m, effort: runEffort(), hour: localHour(), cols, startedAt, date: { ...date, moodSince: Date.now() - moodMs }, paused: paused() },
     width: cols,
     height: TERRY_ROWS,
   })
@@ -552,6 +653,7 @@ const openPane = $ => $.ui.open({ id: PANE, title: '테리' })
 // 같은 그림이면 그대로 두고, 바뀌었으면 타이머를 새로 건다. blit 이 거절되면(아직 안 그려졌을 수 있음) 몇 번 다시 시도한다.
 function runAnim($, requestId, key, columns, rows, build) {
   if (drawMode() === 'font') return stopAnim(key) // hero-font.js 가 스스로 움직인다
+  if (paused()) return stopAnim(key) // 다른 창이 움직이는 중: 멈춘 한 장 (heroPicture)
   const id = [requestId, key, columns, rows, drawMode()].join('|')
   if (anims.get(key)?.id === id) return
   stopAnim(key)
@@ -1084,8 +1186,12 @@ export function register(on) {
     }
     void memTick()
     $.clock.every(30000, () => void memTick())
+    // 새로 연 창이 움직인다
+    myPath = samePath(await $.session.root().catch(() => ''))
+    void claimLive($)
     $.clock.every(1000, () => {
       void runAsks($)
+      if (style === 'terry') void readLive($).then(() => watchTmux($))
       // 한도가 풀리는 순간: 문 앞에서 벌떡 일어나 짖고 알린다
       if (limitWaitUntil && Date.now() >= limitWaitUntil) {
         limitNotified = limitWaitUntil
@@ -1170,11 +1276,13 @@ export function register(on) {
     }
     lastEdit = now
     lastActivity = now
+    void claimLive($)
     return next(e)
   })
 
   // 엔터: 달리기 시작
   on('prompt.submit', async ($, e, next) => {
+    void claimLive($)
     startTurn()
     barkUntil = 0
     typingUntil = 0
@@ -1424,7 +1532,8 @@ export function register(on) {
       const routeMark = !rt ? '' : rt.mode === 'pin' ? '📌 ' : routed ? '🔄 ' : ''
       const routeTail = !rt || nano ? '' : routed && !tight ? ' ← ' + (prettyModel(rt.base) || '').split(' ')[0] : rt.mode === 'stopped' && !mini ? ' ✋' : ''
       const t = working ? turnLine(turn, true) : lastTurn ? turnLine(lastTurn, false) : null
-      const moodText = moodLabel(m, tight) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
+      // 쉬는 창: 상태 글은 그대로, 앞에 일시정지 표시 (|| : 이모지는 Windows 에서 폭이 어긋난다)
+      const moodText = (paused() ? '|| ' : '') + moodLabel(m, tight) + (previewing() ? (tight ? ' ·미리' : ' · 미리보기') : '')
       // 테두리 없는 좁은 카드(mini)도 숫자는 입력 / 출력 / 캐시 세 줄로 (빼 두었더니 좁은 창에서 숫자가 안 보였다, 사용자 10/19)
       let tokenLines = nano ? [] : !t ? (mini ? [] : [' ']) : mini ? t.tokens.split(' · ') : tight ? t.tokens.split(' · 캐시 ').map((x, i) => (i ? '캐시 ' + x : x)) : [t.tokens]
       // 메모리 줄: 카드 안 폭에 맞춰 줄인다. 사용량 표와 테리 높이 안에 안 들어가면 토큰 줄을 하나 뺀다 (좁은 카드의 '캐시' 줄)

@@ -1142,8 +1142,12 @@ export function terryScene(mood, ms, mode, hour = 12, columns = TERRY_COLS, effo
 }
 
 export function terryCells(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high', date = null) {
+  return packCells(terryCellList(mood, ms, mode, hour, columns, effort, date))
+}
+/** the same as a list of [char, fg, bg] (a paused card dims it first: pause.js) */
+export function terryCellList(mood, ms, mode, hour = 12, columns = TERRY_COLS, effort = 'high', date = null) {
   const { canvas, marks } = terryScene(mood, ms, mode, hour, columns, effort, date)
   const cells = canvasToCellList(canvas, columns, TERRY_ROWS, mode)
   for (const m of marks) writeText(cells, columns, m.x, m.y, m.text, m.color)
-  return packCells(cells)
+  return cells
 }

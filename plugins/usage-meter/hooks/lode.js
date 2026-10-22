@@ -228,8 +228,12 @@ export function lodeScene(hero, mood, ms, mode, columns, effort = 'high') {
 }
 
 export function lodeCells(hero, mood, ms, mode, columns, effort = 'high') {
+  return packCells(lodeCellList(hero, mood, ms, mode, columns, effort))
+}
+/** the same as a list of [char, fg, bg] (a paused card dims it first: pause.js) */
+export function lodeCellList(hero, mood, ms, mode, columns, effort = 'high') {
   const { canvas, marks } = lodeScene(hero, mood, ms, mode, columns, effort)
   const cells = canvasToCellList(canvas, columns, TERRY_ROWS, mode)
   for (const [x, y, text, color] of marks) writeText(cells, columns, x, y, text, color ?? 0x9aa4c8)
-  return packCells(cells)
+  return cells
 }
